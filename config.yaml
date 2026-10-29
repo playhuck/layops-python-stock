@@ -1,0 +1,43 @@
+# 관심 종목 (코드는 6자리 KRX 종목코드)
+watchlist:
+  - {code: "005930", name: "삼성전자", group: "반도체"}
+  - {code: "000660", name: "SK하이닉스", group: "반도체"}
+
+data_dir: data
+
+# signals.DEFAULTS 의 값을 덮어쓸 수 있다
+thresholds:
+  buy_threshold: 55
+  split_buy_threshold: 40
+  sell_threshold: 40
+
+# ---------------------------------------------------------------------------------------------
+# 트레이딩 (토스증권). 기본값은 전부 "아무것도 주문하지 않는" 쪽이다: 자본/한도를 직접 채워야 제안이 생긴다.
+# ---------------------------------------------------------------------------------------------
+trading:
+  capital_krw: 0                # 이 전략에 배정한 자본(원). 0 이면 사이징 불가 → 매수 제안 없음
+  risk_per_trade_pct: 1.0       # 1종목 손절 시 자본 대비 손실 상한(%)  ← 가장 중요한 안전장치
+  max_gap_loss_pct: 3.0         # 갭하락 시에도 자본 대비 손실 상한(%)
+  gap_assumption_pct: 15.0      # 갭하락 가정폭(%): 종목당 비중 상한 = max_gap_loss/gap_assumption
+  monthly_kill_pct: 5.0         # 월 손실이 자본의 이 비율에 도달하면 자동 매매 중단(킬스위치)
+  daily_buy_limit_krw: 0        # 하루 총 매수한도(원). 0 이면 매수 불가
+  max_order_krw: 0              # 1회 최대 주문금액(원). 0 이면 제한 없음(위 제약만 적용)
+  max_positions: 3              # 동시 보유 종목 수 상한
+  max_group_pct: 40.0           # 같은 업종(group) 합계가 자본에서 차지할 수 있는 최대 비율(%)
+  regime_filter: true           # KOSPI 가 60일선 아래면 매수 제안 차단 (하락장/국면 변화 대응)
+  stop_atr: 2.0                 # 손절 = 진입가 - N×ATR (종목 변동성 기준)
+  target_atr: 3.5               # 익절 = 진입가 + N×ATR
+  trail_atr: 2.5                # 트레일링: 최근 20일 고점 - N×ATR 아래로 내려가면 매도 제안
+  buy_min_score: 65             # 매수는 보수적으로: 기존 매수 임계(55)보다 높게
+  buy_max_rsi: 65
+  buy_max_vix: 25
+  sell_min_score: 25            # 매도는 과감하게: 기존 매도 임계(40)보다 낮게
+  max_price_drift_pct: 2.0      # 승인 시점 현재가가 제안가에서 이만큼 벗어나면 재제안 요구
+
+# ---------------------------------------------------------------------------------------------
+# 백테스트 전용 비용 (실주문 설정 trading 과 분리). 세금은 stockwatch/research/tax_schedule.yaml (연도·시장별)
+# ---------------------------------------------------------------------------------------------
+backtest_costs:
+  commission_krx: 0.00015       # 토스 KRX 편도 수수료 (GET /api/v1/commissions 로 확인)
+  slippage_buy: 0.001           # 편도 0.1% 가정. 민감도는 0.05% / 0.2% 로도 확인할 것
+  slippage_sell: 0.001
