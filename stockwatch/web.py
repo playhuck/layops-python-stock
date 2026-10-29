@@ -13,6 +13,7 @@ from flask import Flask, abort, jsonify, request, send_from_directory
 from . import collector, indicators as ind
 from . import config as cfgmod, marketflow, sectors, stockseries, usersettings
 from .cli import run, ROOT, summarize_market, load_config
+from .envfile import env
 from .providers import DbProvider
 
 DIST = ROOT / "web" / "dist"
@@ -404,4 +405,4 @@ def spa(path: str):
 if __name__ == "__main__":
     collector.refresh_async("startup")
     collector.start_daily(1)
-    app.run(host="127.0.0.1", port=5000, use_reloader=False)  # 리로더는 기동 갱신을 두 번 실행시킴
+    app.run(host=env("HOST", "127.0.0.1"), port=5000, use_reloader=False)  # HOST 미설정 시 로컬 전용. 리로더는 기동 갱신을 두 번 실행시킴

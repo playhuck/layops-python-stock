@@ -1,0 +1,15 @@
+# 비밀·로컬 산출물은 이미지에 넣지 않는다 (런타임에 환경 변수/볼륨으로 주입)
+.env
+.env.*
+*.json.key
+fcm-config.json*
+.git
+.github
+.venv
+data
+tests
+.pytest_cache
+**/__pycache__
+web/node_modules
+web/dist
+web/.env.local
