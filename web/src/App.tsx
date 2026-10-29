@@ -61,7 +61,7 @@ export default function App() {
     <>
       {/* 웹: 상단 내비게이션 */}
       <nav className="topnav"><div className="in">
-        <span className="brand">Stockwatch</span>
+        <a className="brand" href={tabHref("home")} onClick={onNav("home")} aria-label="홈으로 이동">Stockwatch</a>
         {TABS.map(([k, l]) => (
           <a key={k} href={tabHref(k)} className={`navlink${tab === k ? " on" : ""}`} aria-current={tab === k ? "page" : undefined} onClick={onNav(k)}>{l}{k === "trade" && pending > 0 && <span className="badge">{pending}</span>}</a>
         ))}

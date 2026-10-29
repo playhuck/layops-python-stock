@@ -140,7 +140,7 @@ details.card summary{cursor:pointer;font-weight:600;list-style:none}details.card
   .mob-head,.tabbar{display:none}
   .topnav{display:block;position:sticky;top:0;z-index:30;background:color-mix(in srgb,var(--card) 90%,transparent);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
   .topnav .in{max-width:1360px;margin:0 auto;padding:0 32px;height:64px;display:flex;align-items:center;gap:6px}
-  .brand{font-weight:800;font-size:19px;letter-spacing:-.03em;margin-right:22px;color:var(--primary)}
+  .brand{font-weight:800;font-size:19px;letter-spacing:-.03em;margin-right:22px;color:var(--primary);text-decoration:none}
   .navlink{text-decoration:none;background:none;color:var(--sub);font-size:15px;font-weight:600;padding:8px 14px;border-radius:10px;position:relative}
   .navlink:hover{background:var(--fill);color:var(--fg)}.navlink.on{color:var(--fg);background:var(--fill)}
   .navlink .badge{margin-left:6px;background:var(--up);color:#fff;border-radius:10px;font-size:11px;padding:1px 7px}
