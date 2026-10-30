@@ -1,5 +1,5 @@
 """웹 API + React 정적 서빙: python -m stockwatch.web  → http://127.0.0.1:5000 (로컬 전용 바인딩)
-갱신 시점: ① 앱 기동 시 1회  ② 켜져 있는 동안 매일 01:00  ③ 화면의 '데이터 갱신' 버튼
+갱신 시점: ① 앱 기동 시 1회  ② 켜져 있는 동안 매일 01:00(미국 데이터는 07:00)  ③ 화면의 '데이터 갱신' 버튼
 프런트엔드는 web/ (React+Vite). 빌드 산출물 web/dist 가 있으면 / 에서 서빙한다."""
 from dataclasses import asdict
 
@@ -11,7 +11,7 @@ from functools import wraps
 from flask import Flask, abort, jsonify, request, send_from_directory
 from flask.json.provider import DefaultJSONProvider
 
-from . import collector, indicators as ind
+from . import collector, indicators as ind, usmarket
 from . import config as cfgmod, marketflow, sectors, stockseries, usersettings
 from .cli import run, ROOT, summarize_market, load_config
 from .envfile import env
@@ -412,6 +412,71 @@ def watchlist_remove(code: str):
     return jsonify({"ok": True})
 
 
+@app.get("/api/us/overview")
+def us_overview():
+    """미국 시장 환경: 지수/ETF/금리/달러의 일봉 요약 + 나스닥100 선물의 지금 값."""
+    return jsonify({"market": usmarket.market_overview(), "live": usmarket.live_snapshot(), "status": usmarket.status})
+
+
+@app.get("/api/us/stocks")
+def us_stocks():
+    """미국 스윙 후보(관심 종목)의 지표. 판정은 하지 않고 사실값과 주의 표시만 준다."""
+    return jsonify({"stocks": usmarket.stocks_overview(), "status": usmarket.status, "max": usmarket.MAX_WATCH})
+
+
+@app.get("/api/us/series/<symbol>")
+def us_series(symbol: str):
+    if symbol not in usmarket.watch_symbols() and symbol not in usmarket.MARKET:
+        abort(404)
+    rows = usmarket.series(symbol)
+    if not rows:
+        abort(404)
+    return jsonify(rows)
+
+
+@app.get("/api/us/discover")
+def us_discover():
+    """나스닥 소형·중형주 후보 (야후 스크리너). 시총(달러)/평균거래량/최소주가는 쿼리로 조절."""
+    def num(k, default, lo, hi):
+        try:
+            return min(max(float(request.args.get(k, default)), lo), hi)
+        except ValueError:
+            return default
+    try:
+        rows = usmarket.discover(num("min_cap", 3e8, 5e7, 1e12), num("max_cap", 2e10, 5e7, 1e13), num("min_vol", 1e6, 1e4, 1e9), num("min_price", 5, 0.5, 1e5))
+    except Exception:
+        return jsonify({"error": "야후 스크리너 조회에 실패했습니다"}), 502
+    have = set(usmarket.watch_symbols())
+    return jsonify([{**r, "added": r["symbol"] in have} for r in rows])
+
+
+@app.post("/api/us/watchlist")
+@guarded
+def us_watch_add():
+    b = request.get_json(force=True) or {}
+    try:
+        usmarket.add_and_collect(str(b.get("symbol", "")), str(b.get("name", "")))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"ok": True})
+
+
+@app.delete("/api/us/watchlist/<symbol>")
+@guarded
+def us_watch_remove(symbol: str):
+    try:
+        usmarket.remove_watch(symbol)
+    except KeyError:
+        abort(404)
+    return jsonify({"ok": True})
+
+
+@app.post("/api/us/refresh")
+@guarded
+def us_refresh():
+    return jsonify({"started": usmarket.refresh_us_async("manual")})
+
+
 @app.get("/", defaults={"path": ""})
 @app.get("/<path:path>")
 def spa(path: str):
@@ -424,4 +489,6 @@ def spa(path: str):
 if __name__ == "__main__":
     collector.refresh_async("startup")
     collector.start_daily(1)
+    usmarket.refresh_us_async("startup")
+    usmarket.start_daily_us(7)    # 미국 정규장은 한국시간 05~06시에 마감 → 07시에 완성된 일봉을 받는다
     app.run(host=env("HOST", "127.0.0.1"), port=5000, use_reloader=False)  # HOST 미설정 시 로컬 전용. 리로더는 기동 갱신을 두 번 실행시킴

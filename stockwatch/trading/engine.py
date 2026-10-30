@@ -228,7 +228,9 @@ class Engine:
         ev.append(chk("RSI 과열 아님", last["rsi"] < t.get("buy_max_rsi", 65), f"{last['rsi']:.0f}", f"< {t.get('buy_max_rsi', 65)}"))
         ext = (ref - last["ma20"]) / atr
         ev.append(chk("20일선 이격(추격매수 방지)", ext <= 1.5, f"{ext:+.1f} ATR", "<= +1.5 ATR"))
-        ev.append(chk("VIX 안정", vix is not None and vix < t.get("buy_max_vix", 25), "없음" if vix is None else f"{vix:.1f}", f"< {t.get('buy_max_vix', 25)}"))
+        vd = getattr(self.prov, "vix_date", lambda: None)()    # 01시 제안은 직전 미국 마감 값을 쓴다 → 기준일을 근거에 같이 보여준다
+        ev.append(chk("VIX 안정", vix is not None and vix < t.get("buy_max_vix", 25),
+                      "없음" if vix is None else f"{vix:.1f}" + (f" ({vd:%m/%d} 마감)" if vd else ""), f"< {t.get('buy_max_vix', 25)}"))
         fl = self.prov.flows(code)
         smart = None if fl is None or fl.empty else int(fl.tail(7)[["institution", "foreign"]].sum().sum())
         ev.append(chk("7일 기관+외국인 순매수", smart is not None and smart > 0, "데이터 없음" if smart is None else f"{smart:+,}주", "> 0"))

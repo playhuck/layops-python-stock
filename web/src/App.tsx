@@ -9,8 +9,9 @@ import SectorsPage from "./components/SectorsPage";
 import SettingsPage from "./components/SettingsPage";
 import StockPage from "./components/StockPage";
 import TradingPage from "./components/TradingPage";
+import UsPage from "./components/UsPage";
 
-const TABS: [Tab, string, string][] = [["home", "홈", "◉"], ["sector", "업종", "▦"], ["market", "시장", "▤"], ["trade", "트레이딩", "⇄"], ["settings", "설정", "⚙"]];
+const TABS: [Tab, string, string][] = [["home", "홈", "◉"], ["sector", "업종", "▦"], ["market", "시장", "▤"], ["us", "미국", "◍"], ["trade", "트레이딩", "⇄"], ["settings", "설정", "⚙"]];
 
 export default function App() {
   const [data, setData] = useState<Dashboard | null>(null);
@@ -79,6 +80,7 @@ export default function App() {
             {tab === "home" && <HomePage data={data} onOpen={openStock} onAdd={() => setAdding(true)} />}
             {tab === "sector" && <SectorsPage onOpen={openStock} />}
             {tab === "market" && <MarketPage />}
+            {tab === "us" && <UsPage onToast={show} />}
             {tab === "trade" && <TradingPage onChanged={load} />}
             {tab === "settings" && <SettingsPage onChanged={load} />}
           </>

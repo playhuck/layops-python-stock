@@ -13,3 +13,8 @@ export const mktLabel = (m: string) => (m === "KSQ" ? "코스닥" : "코스피")
 
 /** 큰 금액을 읽기 쉽게: 1,000만원 / 1.5억원 */
 export const krwText = (n: number) => (n >= 1e8 ? `${(n / 1e8).toLocaleString("ko-KR", { maximumFractionDigits: 2 })}억원` : n >= 1e4 ? `${Math.round(n / 1e4).toLocaleString("ko-KR")}만원` : `${n.toLocaleString("ko-KR")}원`);
+
+/** 등락률 +1.2% (값이 없으면 -) */
+export const pct = (n: number | null | undefined, d = 1) => (n == null || !Number.isFinite(n) ? "-" : `${n >= 0 ? "+" : ""}${n.toFixed(d)}%`);
+/** 달러 금액을 읽기 쉽게: $1.2B / $35.0M */
+export const usd = (n: number | null | undefined) => (n == null || !Number.isFinite(n) ? "-" : n >= 1e9 ? `$${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `$${(n / 1e6).toFixed(1)}M` : `$${Math.round(n).toLocaleString("en-US")}`);

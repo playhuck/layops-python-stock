@@ -86,3 +86,12 @@ def test_read_prices_skips_rows_that_already_have_null_ohlc():
     db.get().execute("INSERT INTO prices(code,date,open,high,low,close,volume) VALUES('A','2026-10-12',NULL,2,0.5,1,100)")
     df = marketdb.read_prices("A")
     assert len(df) == 3 and not df.isna().any().any()
+
+
+def test_vix_date_and_delete():
+    marketdb.upsert_vix(pd.DataFrame({"date": pd.to_datetime(["2026-10-01", "2026-10-02", "2026-10-05"]), "close": [15.0, 17.5, 19.0]}))
+    assert marketdb.latest_vix_date().isoformat() == "2026-10-05"
+    marketdb.delete_vix([pd.Timestamp("2026-10-05").date(), pd.Timestamp("2026-10-03").date()])      # 없는 날짜가 섞여 있어도 된다
+    assert marketdb.latest_vix() == 17.5 and marketdb.read_vix_dates() == [pd.Timestamp("2026-10-01").date(), pd.Timestamp("2026-10-02").date()]
+    marketdb.delete_vix([])
+    assert len(marketdb.read_vix_dates()) == 2

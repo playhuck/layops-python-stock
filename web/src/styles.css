@@ -228,3 +228,4 @@ select.input{appearance:auto;padding:12px 14px;font-size:14px}
 .legend .lg.dim{opacity:.45}
 .legend .lg.reset{background:transparent;color:var(--sub);text-decoration:underline}
 .legend-hint{margin:8px 2px 0;font-size:11px;color:var(--sub)}
+.tbl tbody tr.sel td{background:var(--fill)}

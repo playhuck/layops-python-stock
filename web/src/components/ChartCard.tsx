@@ -22,13 +22,13 @@ const SERIES: Record<View, Series[]> = {
 // 기준선(과매수·과매도 등)의 의미를 차트 아래에 같이 적는다
 const GUIDE: Partial<Record<View, string>> = { rsi: "점선: 30 이하 과매도 · 70 이상 과매수", stoch: "점선: 20 이하 과매도 · 80 이상 과매수", macd: "MACD가 시그널을 위로 뚫으면 상승 전환 신호" };
 
-export default function ChartCard({ code }: { code: string }) {
+export default function ChartCard({ code, source = fetchSeries }: { code: string; source?: (code: string) => Promise<Row[]> }) {
   const [data, setData] = useState<Row[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [view, setView] = useState<View>("price");
   const [solo, setSolo] = useState<string | null>(null);   // 하나만 보기: 선택한 선의 key (null = 전체)
   const wide = useWide();
-  useEffect(() => { setData(null); setErr(null); fetchSeries(code).then(setData).catch((e) => setErr(String(e))); }, [code]);
+  useEffect(() => { setData(null); setErr(null); source(code).then(setData).catch((e) => setErr(String(e))); }, [code, source]);
 
   const series = SERIES[view], shown = series.filter((x) => !solo || x.key === solo);
   const pick = (key: string) => setSolo((cur) => (cur === key ? null : key));

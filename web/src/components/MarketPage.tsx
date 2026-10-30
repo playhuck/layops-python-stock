@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Bar, CartesianGrid, ComposedChart, Legend, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { fetchMarketFlow } from "../api";
+import { fetchMarketFlow, fetchUsOverview } from "../api";
 import { signed } from "../format";
 import { INV } from "../investors";
-import type { FlowRow, MarketFlow } from "../types";
+import type { FlowRow, MarketFlow, UsOverview } from "../types";
 import { useWide } from "../useWide";
+import UsStrip from "./UsStrip";
 
 const PARTS = ["금융투자", "보험", "투신", "사모", "은행", "기타금융", "연기금"];
 const fmt = (v: number | null | undefined) => (v == null ? "-" : signed(v));
@@ -17,8 +18,10 @@ export default function MarketPage() {
   const [mkt, setMkt] = useState("STK");
   const [mode, setMode] = useState<"daily" | "cum">("daily");
   const [detail, setDetail] = useState(false);
+  const [us, setUs] = useState<UsOverview | null>(null);
   const wide = useWide();
 
+  useEffect(() => { fetchUsOverview().then(setUs).catch(() => undefined); }, []);   // 미국 요약은 부가 정보라 실패해도 한국 화면은 그대로
   useEffect(() => { fetchMarketFlow(60).then(setData).catch((e) => setErr(String(e))); }, []);
   const market = data?.markets.find((m) => m.id === mkt) ?? data?.markets[0];
   const rows: FlowRow[] = useMemo(() => (market?.rows ?? []).slice(-days), [market, days]);
@@ -40,6 +43,12 @@ export default function MarketPage() {
 
   return (
     <div>
+      {us && (us.market.length > 0 || us.live.length > 0) && (
+        <>
+          <h2 style={{ margin: "0 0 10px" }}>밤사이 미국장 <small>(나스닥100 선물은 지금 값, 나머지는 마지막 마감 기준)</small></h2>
+          <UsStrip data={us} />
+        </>
+      )}
       <div className="toolbar">
         <div className="seg" style={{ minWidth: 200 }}>{data.markets.map((m) => <button key={m.id} className={m.id === market.id ? "on" : ""} onClick={() => setMkt(m.id)}>{m.label}</button>)}</div>
         <div className="seg" style={{ minWidth: 220 }}>{[10, 20, 30].map((d) => <button key={d} className={days === d ? "on" : ""} onClick={() => setDays(d)}>{d}일</button>)}</div>

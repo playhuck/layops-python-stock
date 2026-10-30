@@ -63,3 +63,17 @@ export interface SectorNode { id: string; name: string; depth: number; size: num
 export interface SectorOverview { categories: SectorNode[]; synced_at: string | null; capital: number; default_limit_pct: number }
 
 export interface Candidate { orderId: string; quantity: number; price: number; status: string | null; orderedAt: string; exact: boolean }
+
+type N = number | null | undefined;
+export interface UsMarketRow { symbol: string; name: string; date: string; close: number; chg_1d: N; chg_5d: N; chg_20d: N; rsi: N; above_ma20: boolean | null; above_ma60: boolean | null; trend: string | null }
+export interface UsLive { symbol: string; name: string; last: number; base: number; base_at: string; as_of: string; chg: number }
+export interface UsOverview { market: UsMarketRow[]; live: UsLive[]; status: Status }
+export interface UsStock {
+  symbol: string; name: string; date: string | null; flags: string[]; pending?: boolean;
+  close?: N; chg_1d?: N; chg_5d?: N; chg_20d?: N; chg_60d?: N; rs20_nasdaq?: N; rs60_nasdaq?: N; rs20_small?: N; rs60_small?: N;
+  rsi?: N; atr_pct?: N; stoch_k?: N; macd_hist?: N; bb_pos?: N; above_ma20?: boolean | null; above_ma60?: boolean | null; ma20_slope?: N;
+  vol_ratio?: N; dollar_vol_20d?: N; from_high52_pct?: N; from_low52_pct?: N; max_gap_60d?: N;
+  meta_updated_at?: string | null; market_cap?: N; short_pct_float?: N; beta?: N; sector?: string | null; industry?: string | null; next_earnings?: string | null; days_to_earnings?: N;
+}
+export interface UsStocks { stocks: UsStock[]; status: Status; max: number }
+export interface UsDiscoverHit { symbol: string; name: string; market_cap: N; price: N; avg_volume: N; exchange: string | null; added: boolean }

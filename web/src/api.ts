@@ -55,3 +55,12 @@ export const resolveProposal = (id: number, resolution: "adopt" | "not_sent" | "
   send<{ ok: boolean; status?: string }>("POST", `/api/trading/proposals/${id}/resolve`, { resolution, order_id });
 export const fetchCandidates = (id: number) => get<import("./types").Candidate[]>(`/api/trading/proposals/${id}/candidates`);
 export const dismissUnreconciled = (code: string) => send<{ ok: boolean }>("POST", `/api/trading/unreconciled/${code}/dismiss`);
+
+import type { UsDiscoverHit, UsOverview, UsStocks } from "./types";
+export const fetchUsOverview = () => get<UsOverview>("/api/us/overview");
+export const fetchUsStocks = () => get<UsStocks>("/api/us/stocks");
+export const fetchUsSeries = (symbol: string) => get<Row[]>(`/api/us/series/${encodeURIComponent(symbol)}`);
+export const fetchUsDiscover = (minCap: number, maxCap: number) => get<UsDiscoverHit[]>(`/api/us/discover?min_cap=${minCap}&max_cap=${maxCap}`);
+export const addUsStock = (symbol: string, name: string) => send("POST", "/api/us/watchlist", { symbol, name });
+export const removeUsStock = (symbol: string) => send("DELETE", `/api/us/watchlist/${encodeURIComponent(symbol)}`);
+export const refreshUs = () => send<{ started: boolean }>("POST", "/api/us/refresh");

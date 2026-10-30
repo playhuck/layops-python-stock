@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 
 // 얇은 History API 라우터: 새로고침해도 같은 화면, 브라우저 뒤로/앞으로 가기 지원. (서버는 모든 경로에 index.html 을 돌려준다)
-export type Tab = "home" | "sector" | "market" | "trade" | "settings";
+export type Tab = "home" | "sector" | "market" | "us" | "trade" | "settings";
 export interface Route { tab: Tab; code: string | null }
 
-const PATH: Record<Tab, string> = { home: "/", sector: "/sectors", market: "/market", trade: "/trading", settings: "/settings" };
+const PATH: Record<Tab, string> = { home: "/", sector: "/sectors", market: "/market", us: "/us", trade: "/trading", settings: "/settings" };
 
 export function parse(pathname: string): Route {
   const p = pathname.replace(/\/+$/, "") || "/";

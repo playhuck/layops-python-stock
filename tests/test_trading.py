@@ -1,3 +1,5 @@
+from datetime import date
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -269,3 +271,13 @@ def test_push_problem_reports_missing_key_file(monkeypatch, tmp_path):
     assert "찾을 수 없습니다" in push.problem() and not push.configured()
     (tmp_path / "nope.json").write_text("{}")
     assert push.problem() is None and push.configured()
+
+
+def test_vix_evidence_shows_reference_date_when_provider_knows_it(env):
+    class P(FakeProvider):
+        def vix_date(self): return date(2026, 10, 28)
+    e, _, _ = make(env, prov=P())
+    ev = {c["label"]: c for c in e.generate()[CODE]["buy"]["evidence"]}
+    assert ev["VIX 안정"]["value"] == "15.0 (10/28 마감)" and ev["VIX 안정"]["passed"]
+    e2, _, _ = make(env)                                                        # vix_date 가 없는 공급자(CSV/가짜)도 그대로 동작
+    assert {c["label"]: c for c in e2.generate()[CODE]["buy"]["evidence"]}["VIX 안정"]["value"] == "15.0"

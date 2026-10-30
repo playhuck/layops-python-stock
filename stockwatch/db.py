@@ -56,6 +56,12 @@ CREATE INDEX IF NOT EXISTS ix_sector_members_symbol ON sector_members(symbol);
 -- 업종(대/중분류)별 비중 한도 개별 설정. 없으면 대분류는 기본 한도(max_group_pct)를 따르고 중분류는 한도 없음
 CREATE TABLE IF NOT EXISTS sector_limits(sector_id TEXT PRIMARY KEY, max_pct DOUBLE PRECISION NOT NULL);
 CREATE TABLE IF NOT EXISTS push_tokens(token TEXT PRIMARY KEY, created_at TEXT NOT NULL);
+-- 미국(나스닥) 스윙 후보. 시세는 prices 테이블에 티커를 code 로 넣어 재사용하고(KRX 코드와 겹치지 않음), 종목 메타(시총/공매도/실적일)는 최신 스냅샷 1행만 둔다
+CREATE TABLE IF NOT EXISTS us_watchlist(
+  symbol TEXT PRIMARY KEY, name TEXT NOT NULL, sort_order BIGSERIAL, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS us_meta(
+  symbol TEXT PRIMARY KEY, updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), market_cap DOUBLE PRECISION, avg_volume DOUBLE PRECISION,
+  float_shares DOUBLE PRECISION, short_pct_float DOUBLE PRECISION, beta DOUBLE PRECISION, sector TEXT, industry TEXT, next_earnings DATE);
 """
 
 

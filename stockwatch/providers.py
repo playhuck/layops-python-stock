@@ -15,6 +15,7 @@ class Provider(Protocol):
     def prices(self, code: str) -> pd.DataFrame: ...
     def flows(self, code: str) -> pd.DataFrame | None: ...
     def vix(self) -> float | None: ...
+    def vix_date(self): ...   # 그 VIX 값의 기준일(마감일). 모르면 None
 
 
 class CsvProvider:
@@ -52,6 +53,10 @@ class CsvProvider:
         df = self._read(self.root / "vix.csv")
         return None if df is None or df.empty else float(df["close"].iloc[-1])
 
+    def vix_date(self):
+        df = self._read(self.root / "vix.csv")
+        return None if df is None or df.empty else df.index[-1].date()
+
 
 class DbProvider:
     """PostgreSQL 에서 읽는 공급자 (CsvProvider 와 같은 인터페이스)."""
@@ -77,3 +82,7 @@ class DbProvider:
     def vix(self) -> float | None:
         from . import marketdb
         return marketdb.latest_vix()
+
+    def vix_date(self):
+        from . import marketdb
+        return marketdb.latest_vix_date()

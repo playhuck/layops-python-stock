@@ -6,7 +6,7 @@ from stockwatch import db
 from stockwatch.trading.store import Store
 
 _db = None
-TABLES = ["sectors", "sector_members", "settings", "watchlist", "prices", "flows", "vix", "datasets", "rules", "proposals", "ledger", "audit", "push_tokens"]
+TABLES = ["sectors", "sector_members", "settings", "watchlist", "prices", "flows", "vix", "datasets", "rules", "proposals", "ledger", "audit", "push_tokens", "us_watchlist", "us_meta"]
 
 
 def test_db() -> db.Database:

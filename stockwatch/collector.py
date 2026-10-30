@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
-from . import config, krx, marketdb
+from . import config, krx, marketdb, usmarket
 
 ROOT = Path(__file__).resolve().parent.parent
 _lock = threading.Lock()
@@ -31,6 +31,11 @@ def _yahoo(sym: str, period: str):
         raise RuntimeError(f"{sym}: 데이터 없음")
     df.index = df.index.tz_localize(None); df.index.name = "date"
     return df.rename(columns=str.lower).reset_index()
+
+
+def refresh_vix():
+    """VIX 는 미국 정규장이 끝난 완성 일봉만 저장하고, 이번 응답에서 장중으로 확인된 날짜의 기존 행은 지운다 (usmarket.persist_vix)."""
+    usmarket.persist_vix(_yahoo("^VIX", "1mo")[["date", "close"]])
 
 
 def refresh(trigger: str) -> bool:
@@ -57,7 +62,7 @@ def refresh(trigger: str) -> bool:
             code = it["code"]
             suffix = ".KQ" if it.get("market") == "KSQ" else ".KS"
             step(f"시세 {code}", lambda: marketdb.upsert_prices(code, _yahoo(code + suffix, "2y")[["date", "open", "high", "low", "close", "volume"]]))
-        step("VIX", lambda: marketdb.upsert_vix(_yahoo("^VIX", "1mo")[["date", "close"]]))
+        step("VIX", refresh_vix)
 
         def flows():
             c = krx.KrxClient(); c.login()

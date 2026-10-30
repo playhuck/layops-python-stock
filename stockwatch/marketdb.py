@@ -75,6 +75,22 @@ def upsert_vix(df: pd.DataFrame):
            [(d[i], _nz(v.at[i, "close"])) for i in range(len(v)) if _nz(v.at[i, "close"]) is not None])
 
 
+def latest_vix_date():
+    r = db.get().execute("SELECT date FROM vix ORDER BY date DESC LIMIT 1").fetchone()
+    return r["date"] if r else None
+
+
+def read_vix_dates() -> list:
+    return [r["date"] for r in db.get().execute("SELECT date FROM vix ORDER BY date").fetchall()]
+
+
+def delete_vix(dates) -> None:
+    """지정한 날짜의 VIX 행만 지운다 (없는 날짜는 무시). 장중 값으로 저장돼 있던 미완성 행을 정리할 때 쓴다."""
+    dates = list(dates)
+    if dates:
+        db.get().execute("DELETE FROM vix WHERE date = ANY(%s)", (dates,))
+
+
 def latest_vix() -> float | None:
     r = db.get().execute("SELECT close FROM vix ORDER BY date DESC LIMIT 1").fetchone()
     return float(r["close"]) if r else None
