@@ -57,3 +57,13 @@ def test_watchlist_mutations_guarded():
 
 def test_search_empty_query():
     assert c.get("/api/stocks/search?q=").json == []
+
+
+def test_json_responses_never_contain_nan_or_infinity():
+    import json
+    import numpy as np
+    from stockwatch import web
+    payload = {"price": float("nan"), "xs": [np.float64("nan"), float("inf"), -np.inf, 1.5], "t": (np.float32("nan"), 2), "ok": {"v": 3.25, "s": "NaN"}}
+    text = web.app.json.dumps(payload)
+    out = json.loads(text, parse_constant=lambda c: (_ for _ in ()).throw(AssertionError(f"비표준 JSON 상수 {c}")))   # 표준 파서처럼 NaN/Infinity 를 거부
+    assert out == {"price": None, "xs": [None, None, None, 1.5], "t": [None, 2], "ok": {"v": 3.25, "s": "NaN"}}

@@ -6,6 +6,7 @@
 - 모든 판단 근거는 정량 체크리스트(evidence)로 남긴다.
 """
 import json
+import math
 import threading
 from dataclasses import asdict
 from datetime import date, datetime, timedelta
@@ -196,10 +197,14 @@ class Engine:
         res = analyze(code, name, df, self.prov.flows(code), vix, self.cfg.get("thresholds"))
         d = ind.add_all(df); last = d.iloc[-1]
         atr, close = float(last["atr"]), float(last["close"])
+        if not (math.isfinite(atr) and math.isfinite(close) and close > 0):
+            raise ValueError(f"가격/ATR 을 계산할 수 없어요(종가 {close}, ATR {atr}). 시세 데이터를 확인하세요")   # generate 가 이 종목을 error 로 표시하고 제안에서 제외
         ref = close
         if self.gw.configured():
             try:
                 ref = self.gw.cached(f"px{code}", lambda: self.gw.price(code), ttl=20)
+                if not (math.isfinite(ref) and ref > 0):
+                    ref = close                      # 토스 현재가가 비정상이면 종가로 대체
             except Exception:
                 pass
         out = {"name": name, "price": ref, "atr": round(atr, 1), "buy": None, "sell": None}

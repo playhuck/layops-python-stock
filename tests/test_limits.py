@@ -1,6 +1,7 @@
 """0단계 회귀 테스트: 동시 제안·연속 승인에서도 최대 종목 수 / 업종 / 일일 한도 / 현금이 보장되는가."""
 import threading
 
+import numpy as np
 import pytest
 from pgtest import new_store
 
@@ -345,3 +346,14 @@ def test_blocked_sell_does_not_cancel_the_protection_order(env):
     fake.open_orders = lambda symbol=None: [{"orderId": "OTHER"}]                              # 이미 미체결 주문이 있다
     r = e.approve(sell["id"])
     assert not r["ok"] and r.get("blocked") and fake.cancelled == []                           # 보호주문은 건드리지 않았다
+
+
+def test_nan_price_or_atr_marks_the_stock_as_error_and_never_builds_a_proposal(env):
+    # 마지막 봉 종가가 비어 있으면 가격·ATR 이 NaN → 이전에는 NaN 이 last_screen/응답에 그대로 실려 화면 전체가 죽었다
+    e, store, fake = build(codes=(A,))
+    df = FakeProvider().df.copy(); df.iloc[-1, df.columns.get_loc("close")] = np.nan
+    e.prov = FakeProvider(df)
+    screen = e.generate()
+    assert "error" in screen[A] and "계산할 수 없" in screen[A]["error"]
+    assert not store.proposals("pending")
+    assert "NaN" not in (store.get("last_screen") or "")

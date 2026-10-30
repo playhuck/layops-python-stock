@@ -9,6 +9,7 @@ import time
 from functools import wraps
 
 from flask import Flask, abort, jsonify, request, send_from_directory
+from flask.json.provider import DefaultJSONProvider
 
 from . import collector, indicators as ind
 from . import config as cfgmod, marketflow, sectors, stockseries, usersettings
@@ -17,7 +18,25 @@ from .envfile import env
 from .providers import DbProvider
 
 DIST = ROOT / "web" / "dist"
+def _finite(o):
+    """NaN/±Infinity → None (재귀). 파이썬 json 은 NaN 을 그대로 써서 브라우저 JSON.parse 가 실패하므로, 응답 경계에서 한 번에 막는다."""
+    if isinstance(o, (float, np.floating)):
+        return float(o) if np.isfinite(o) else None
+    if isinstance(o, dict):
+        return {k: _finite(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_finite(v) for v in o]
+    return o
+
+
+class _JSON(DefaultJSONProvider):
+    def dumps(self, obj, **kwargs):
+        kwargs.setdefault("allow_nan", False)       # 걸러지지 않은 값이 남아 있으면 NaN 을 조용히 내보내지 않고 서버에서 예외로 드러낸다
+        return super().dumps(_finite(obj), **kwargs)
+
+
 app = Flask(__name__, static_folder=None)
+app.json = _JSON(app)
 app.json.sort_keys = False  # 투자자 구분 등 딕셔너리의 의도한 순서를 JSON 응답에서 유지 (기본값은 키 가나다순 정렬)
 
 

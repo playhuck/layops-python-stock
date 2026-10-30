@@ -1,6 +1,6 @@
 export const signed = (n: number, digits = 0) =>
   (n >= 0 ? "+" : "") + n.toLocaleString("ko-KR", { maximumFractionDigits: digits });
-export const won = (n: number) => n.toLocaleString("ko-KR", { maximumFractionDigits: 0 });
+export const won = (n: number | null | undefined) => (n == null || !Number.isFinite(n) ? "-" : n.toLocaleString("ko-KR", { maximumFractionDigits: 0 }));
 export const num = (n: number | null | undefined, d = 0) => (n == null ? "-" : n.toFixed(d));
 
 /** 판정 문구 → 색상 클래스 */

@@ -69,3 +69,20 @@ def test_summary_survives_missing_todays_per_and_uses_latest_valid_row():
 
     line = next(x for x in cli.summarize_extra(P(), "A", pd.DataFrame({"close": [1.0] * 30})) if x.startswith("PER"))
     assert "PER 35.0" in line and "PBR 3.60" in line
+
+
+def test_incomplete_bar_is_not_stored_and_never_overwrites_a_good_close():
+    # 마감 직후 Yahoo 가 당일 종가를 비워 주는 경우: 이전에는 NULL 이 정상 값을 덮어써 화면 전체가 NaN 으로 죽었다
+    marketdb.upsert_prices("A", frame(3))
+    bad = frame(3).assign(close=[1.0, 2.0, np.nan])
+    marketdb.upsert_prices("A", pd.concat([bad, frame(1, "2026-10-08").assign(close=np.nan)]))
+    df = marketdb.read_prices("A")
+    assert len(df) == 3 and df["close"].tolist() == [1.0, 2.0, 3.0]            # 마지막 정상 종가(3.0) 유지, 종가 없는 새 날짜는 저장 안 됨
+
+
+def test_read_prices_skips_rows_that_already_have_null_ohlc():
+    marketdb.upsert_prices("A", frame(3))
+    db.get().execute("INSERT INTO prices(code,date,open,high,low,close,volume) VALUES('A','2026-10-09',1,2,0.5,NULL,100)")
+    db.get().execute("INSERT INTO prices(code,date,open,high,low,close,volume) VALUES('A','2026-10-12',NULL,2,0.5,1,100)")
+    df = marketdb.read_prices("A")
+    assert len(df) == 3 and not df.isna().any().any()

@@ -31,6 +31,8 @@ def _batch(sql: str, rows: list[tuple], database: db.Database | None = None):
 
 # -- 시세 --------------------------------------------------------------------------------------
 def upsert_prices(code: str, df: pd.DataFrame):
+    # 시가·고가·저가·종가 중 하나라도 비어 있으면(마감 직후 Yahoo 가 종가를 비워 주는 불완전한 봉) 저장하지 않는다: 정상 값을 NULL 로 덮어쓰지 않고, 다음 갱신 때 완성된 값이 들어온다
+    df = df.dropna(subset=[c for c in ("open", "high", "low", "close") if c in df.columns])
     d, v = _dates(df), df.reset_index(drop=True)
     _batch("""INSERT INTO prices(code,date,open,high,low,close,volume) VALUES(%s,%s,%s,%s,%s,%s,%s)
               ON CONFLICT(code,date) DO UPDATE SET open=EXCLUDED.open, high=EXCLUDED.high, low=EXCLUDED.low,
@@ -39,7 +41,8 @@ def upsert_prices(code: str, df: pd.DataFrame):
 
 
 def read_prices(code: str) -> pd.DataFrame:
-    rows = db.get().execute("SELECT date,open,high,low,close,volume FROM prices WHERE code=%s ORDER BY date", (code,)).fetchall()
+    rows = db.get().execute("SELECT date,open,high,low,close,volume FROM prices WHERE code=%s AND open IS NOT NULL AND high IS NOT NULL AND low IS NOT NULL "
+                            "AND close IS NOT NULL ORDER BY date", (code,)).fetchall()
     if not rows:
         return pd.DataFrame(columns=PRICE_COLS)
     df = pd.DataFrame(rows)
