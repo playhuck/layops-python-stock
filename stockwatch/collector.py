@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
-from . import config, krx, marketdb, usmarket
+from . import config, krx, marketdb, usmarket, volume_profile
 
 ROOT = Path(__file__).resolve().parent.parent
 _lock = threading.Lock()
@@ -31,6 +31,15 @@ def _yahoo(sym: str, period: str):
         raise RuntimeError(f"{sym}: 데이터 없음")
     df.index = df.index.tz_localize(None); df.index.name = "date"
     return df.rename(columns=str.lower).reset_index()
+
+
+def kr_prices(df: pd.DataFrame, now: datetime | None = None) -> pd.DataFrame:
+    """한국 일봉 중 장 마감(KST 15:40) 전의 오늘 봉은 장중 값이라 저장하지 않는다. 새벽 자동 갱신(직전 거래일까지 완성)은 그대로 저장된다."""
+    return volume_profile.complete_kr_bars(df.set_index("date"), now).reset_index()
+
+
+def refresh_kr_prices(code: str, suffix: str, now: datetime | None = None):
+    marketdb.upsert_prices(code, kr_prices(_yahoo(code + suffix, "2y")[["date", "open", "high", "low", "close", "volume"]], now))
 
 
 def refresh_vix():
@@ -61,7 +70,7 @@ def refresh(trigger: str) -> bool:
         for it in cfg["watchlist"]:
             code = it["code"]
             suffix = ".KQ" if it.get("market") == "KSQ" else ".KS"
-            step(f"시세 {code}", lambda: marketdb.upsert_prices(code, _yahoo(code + suffix, "2y")[["date", "open", "high", "low", "close", "volume"]]))
+            step(f"시세 {code}", lambda: refresh_kr_prices(code, suffix))
         step("VIX", refresh_vix)
 
         def flows():

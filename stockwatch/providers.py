@@ -59,11 +59,18 @@ class CsvProvider:
 
 
 class DbProvider:
-    """PostgreSQL 에서 읽는 공급자 (CsvProvider 와 같은 인터페이스)."""
+    """PostgreSQL 에서 읽는 공급자 (CsvProvider 와 같은 인터페이스). 한국(KRX) 종목 전용이다:
+    prices() 가 한국 장 마감 시각(KST 15:40) 규칙으로 오늘 봉을 거른다. 미국 종목은 usmarket 이 marketdb 를 직접 읽는다(동부시간 규칙)."""
+
+    def _now(self):
+        return None                                         # 기본은 현재 시각(KST). 테스트가 시각을 바꿔 끼운다
 
     def prices(self, code: str) -> pd.DataFrame:
-        from . import marketdb
+        """완성된 일봉만: 장 마감(KST 15:40) 전의 오늘 봉은 장중 값이라 점수·ATR·이동평균·화면 어디에도 쓰지 않는다 (예전에 저장된 장중 행 포함)."""
+        from . import marketdb, volume_profile
         df = marketdb.read_prices(code)
+        if not df.empty:
+            df = volume_profile.complete_kr_bars(df, self._now())
         if df.empty:
             raise FileNotFoundError(f"시세 데이터 없음: {code}")
         return df
