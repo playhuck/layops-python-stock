@@ -3,7 +3,7 @@ import type { UsOverview } from "../types";
 
 const cls = (v: number | null | undefined) => (v == null ? "" : v >= 0 ? "pos" : "neg");
 const COMPACT = ["^IXIC", "^SOX", "^RUT", "^VIX"];     // 한국 시장 화면에는 핵심만, 미국 화면에는 전부
-const NO_TREND = ["^VIX", "^TNX", "DX-Y.NYB"];       // 변동성·금리·달러는 20/60일선 배열이 주식 지수처럼 읽히지 않아 표기하지 않는다
+const NO_TREND = ["^VIX", "^TNX", "DX-Y.NYB", "KRW=X"];       // 변동성·금리·달러·환율은 20/60일선 배열이 주식 지수처럼 읽히지 않아 표기하지 않는다
 
 /** 미국 시장 요약 카드. 나스닥100 선물은 '지금' 값(밤사이 흐름), 나머지는 마지막 완성 일봉. */
 export default function UsStrip({ data, full = false }: { data: UsOverview; full?: boolean }) {

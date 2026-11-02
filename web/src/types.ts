@@ -97,13 +97,19 @@ export interface UsReview {
   verdict: UsVerdict; evidence: Check[]; levels: Record<string, number | null> | null; price: number | null; as_of: string | null; unmet: number;
   pnl_pct?: number; pnl_value?: number; value?: number; warnings: string[]; note: string; rules_version: number;
 }
-export interface UsPosition { symbol: string; qty: number; avg_price: number; opened_on: string | null; note: string; entry_atr: number | null; entry_atr_source: "opened" | "registered" | "manual" | null; tracked_from: string | null }
-export interface UsJudgmentStock { symbol: string; name: string; buy: UsReview; position: UsPosition | null; sell: UsReview | null }
+export interface UsPosition { symbol: string; qty: number; avg_price: number; opened_on: string | null; note: string; entry_atr: number | null; entry_atr_source: "opened" | "registered" | "manual" | null; tracked_from: string | null; fx_buy: number | null }
+// 원화 기준 손익(표시 전용): 판단·손절·목표는 달러 기준 그대로. (1+주가 손익)×(1+환율 변화)−1 = 원화 손익
+export interface UsKrw {
+  available: boolean; reason: string | null; fx_buy: number | null; fx_now: number | null; fx_as_of: string | null; price_pct: number | null;
+  cost_krw?: number; value_krw?: number; pnl_krw?: number; pnl_pct?: number; fx_pct?: number;
+}
+export interface UsFx { rate: number | null; as_of: string | null; reason: string | null }
+export interface UsJudgmentStock { symbol: string; name: string; buy: UsReview; position: UsPosition | null; sell: UsReview | null; krw: UsKrw | null }
 export interface UsJudgment {
-  market: { ok: boolean | null; vix: number | null; nasdaq_above_ma50: boolean | null; text: string };
+  market: { ok: boolean | null; vix: number | null; nasdaq_above_ma50: boolean | null; text: string }; fx: UsFx;
   stocks: UsJudgmentStock[]; note: string; rules_version: number;
 }
-export interface UsPositionInput { qty: number; avg_price: number; opened_on: string | null; note: string; entry_atr?: number | null; name?: string }
+export interface UsPositionInput { qty: number; avg_price: number; opened_on: string | null; note: string; entry_atr?: number | null; fx_buy?: number | null; name?: string }
 
 // 보유 정보: 출처를 하나만 골라 보여준다 (직접 입력 / 토스에서 가져와서 반영). 서버가 선택한 출처의 것만 내려준다
 export type HoldingsSource = "manual" | "import";

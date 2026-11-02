@@ -51,7 +51,7 @@ def test_validate_rejects_bad_input(args):
 def test_validate_dates_and_normalization():
     today = date(2026, 10, 30)
     v = us_positions.validate(" soun ", "2.5", "11.20", "2026-10-01", "  메모  ", today=today)
-    assert v == {"symbol": "SOUN", "qty": 2.5, "avg_price": 11.2, "opened_on": date(2026, 10, 1), "note": "메모", "entry_atr": None}
+    assert v == {"symbol": "SOUN", "qty": 2.5, "avg_price": 11.2, "opened_on": date(2026, 10, 1), "note": "메모", "entry_atr": None, "fx_buy": None}
     assert us_positions.validate("AAA", 1, 1, None, today=today)["opened_on"] is None
     assert us_positions.validate("AAA", 1, 1, "", today=today)["opened_on"] is None
     for bad in ("2026-13-01", "10/01/2026", "2026-10-31"):                       # 형식 오류, 미래
@@ -232,8 +232,10 @@ def test_old_table_without_the_new_columns_is_migrated():
             c.execute(f"INSERT INTO {schema}.us_positions(symbol,qty,avg_price) VALUES('OLD',1,10)")
         d2 = db.Database(schema=schema)                                              # 생성 시 스키마 적용(멱등)
         try:
-            row = d2.execute("SELECT symbol, entry_atr, entry_atr_source, tracked_from FROM us_positions").fetchone()
-            assert row == {"symbol": "OLD", "entry_atr": None, "entry_atr_source": None, "tracked_from": None}     # 옛 기록은 그대로, 새 컬럼은 비어 있다
+            row = d2.execute("SELECT symbol, entry_atr, entry_atr_source, tracked_from, fx_buy FROM us_positions").fetchone()
+            assert row == {"symbol": "OLD", "entry_atr": None, "entry_atr_source": None, "tracked_from": None, "fx_buy": None}     # 옛 기록은 그대로, 새 컬럼은 비어 있다
+            with pytest.raises(Exception):
+                d2.execute("UPDATE us_positions SET fx_buy=0")
             with pytest.raises(Exception):
                 d2.execute("UPDATE us_positions SET entry_atr=-1")
         finally:
@@ -267,3 +269,86 @@ def test_api_add_by_typed_ticker_normalizes_names_it_by_symbol_and_explains_fail
     nope = c.post("/api/us/watchlist", json={"symbol": "nopex", "name": ""}, headers=H)
     assert nope.status_code == 400 and "야후에서 시세를 가져오지 못했어요" in strict(nope)["error"]
     assert usmarket.watch_symbols() == ["AAA"]                                                    # 실패한 티커는 남지 않는다
+
+
+# -- 매수 시점 환율과 원화 손익 ---------------------------------------------------------------------
+from stockwatch import us_judgment as uj
+
+
+@pytest.mark.parametrize("fx", [0, -1, "x", float("nan"), float("inf"), 0.00073, 50, 20_000])      # 달러/원을 거꾸로 넣은 값, 자릿수 오타 포함
+def test_validate_rejects_bad_fx(fx):
+    with pytest.raises(ValueError):
+        us_positions.validate("AAA", 1, 10, fx_buy=fx)
+
+
+def test_validate_accepts_fx_and_blank_means_unknown():
+    assert us_positions.validate("AAA", 1, 10, fx_buy="1350.5")["fx_buy"] == 1350.5
+    assert us_positions.validate("AAA", 1, 10, fx_buy="")["fx_buy"] is None and us_positions.validate("AAA", 1, 10)["fx_buy"] is None
+
+
+def test_register_stores_updates_and_clears_fx(offline):
+    assert us_positions.register("AAA", 3, 100, fx_buy=1320)["fx_buy"] == 1320
+    assert us_positions.register("AAA", 3, 100, fx_buy="1388.4")["fx_buy"] == 1388.4              # 같은 종목은 덮어쓴다
+    assert us_positions.register("AAA", 3, 100)["fx_buy"] is None                                   # 비우면 모름으로 돌아간다
+
+
+def test_krw_view_splits_the_krw_result_into_price_and_fx():
+    pos = {"qty": 10, "avg_price": 100.0, "fx_buy": 1300.0}
+    r = us_review.krw_view(110.0, pos, {"rate": 1400.0, "as_of": "2026-10-30", "reason": None})
+    assert r["available"] and r["cost_krw"] == 1_300_000 and r["value_krw"] == 1_540_000 and r["pnl_krw"] == 240_000
+    assert r["price_pct"] == pytest.approx(10.0) and r["fx_pct"] == pytest.approx((1400 / 1300 - 1) * 100)
+    assert r["pnl_pct"] == pytest.approx(((1 + r["price_pct"] / 100) * (1 + r["fx_pct"] / 100) - 1) * 100)      # 곱으로 합쳐진다
+    assert r["fx_buy"] == 1300.0 and r["fx_now"] == 1400.0 and r["fx_as_of"] == "2026-10-30"
+
+
+def test_krw_view_can_be_negative_even_when_the_dollar_price_is_up():
+    pos = {"qty": 10, "avg_price": 100.0, "fx_buy": 1400.0}                                          # 비싼 환율에 샀고 그 뒤 환율이 내려감
+    r = us_review.krw_view(105.0, pos, {"rate": 1300.0, "as_of": "2026-10-30", "reason": None})
+    assert r["price_pct"] == pytest.approx(5.0) and r["pnl_krw"] < 0 and r["pnl_pct"] < 0 and r["fx_pct"] < 0
+
+
+def test_krw_view_explains_why_it_is_unavailable():
+    fx_ok = {"rate": 1400.0, "as_of": "2026-10-30", "reason": None}
+    no_buy = us_review.krw_view(110.0, {"qty": 1, "avg_price": 100.0, "fx_buy": None}, fx_ok)
+    assert not no_buy["available"] and "매수 시점 환율" in no_buy["reason"] and no_buy["price_pct"] == pytest.approx(10.0)    # 달러 기준 값은 그대로 준다
+    no_fx = us_review.krw_view(110.0, {"qty": 1, "avg_price": 100.0, "fx_buy": 1300.0}, {"rate": None, "as_of": None, "reason": "환율 없음"})
+    assert not no_fx["available"] and no_fx["reason"] == "환율 없음"
+    assert not us_review.krw_view(None, {"qty": 1, "avg_price": 100.0, "fx_buy": 1300.0}, fx_ok)["available"]
+
+
+def test_fx_now_states(offline):
+    today = date(2026, 10, 30)
+    assert us_review.fx_now(today)["rate"] is None and "아직 받지 못" in us_review.fx_now(today)["reason"]
+    marketdb.upsert_prices("KRW=X", bars(n=60, end="2026-10-29", close0=1300.0, step=1.0, volume=0.0))
+    got = us_review.fx_now(today)
+    assert got["rate"] == pytest.approx(1300.0 + 59 * 1.0 + 3.0 * np.sin(59)) and got["as_of"] == "2026-10-29" and got["reason"] is None
+    old = us_review.fx_now(date(2026, 11, 20))                                                       # 2026-10-29 값이 22일 전
+    assert old["rate"] is None and "22일 전" in old["reason"] and old["as_of"] == "2026-10-29"
+
+
+def test_judgments_attach_krw_and_fx_for_held_positions(offline):
+    us_positions.register("AAA", 2, 90, fx_buy=1300)
+    marketdb.upsert_prices("AAA", bars())
+    marketdb.upsert_prices("KRW=X", bars(n=60, end="2026-10-29", close0=1400.0, step=0.0, volume=0.0))
+    j = us_review.judgments()
+    s = j["stocks"][0]
+    assert j["fx"]["as_of"] == "2026-10-29" and s["position"]["fx_buy"] == 1300
+    assert s["krw"]["available"] and s["krw"]["fx_buy"] == 1300 and s["krw"]["pnl_krw"] == pytest.approx(2 * s["sell"]["price"] * j["fx"]["rate"] - 2 * 90 * 1300)
+    assert s["sell"]["pnl_pct"] == pytest.approx(s["krw"]["price_pct"])                                # 판단 쪽 손익은 그대로 달러 기준이다
+    usmarket.add_watch("BBB", "B")
+    assert [x["krw"] for x in us_review.judgments()["stocks"] if x["symbol"] == "BBB"] == [None]     # 보유가 없으면 원화 손익도 없다
+
+
+def test_krw_symbol_is_collected_with_the_market_indicators():
+    assert usmarket.MARKET["KRW=X"] == "원/달러 환율"
+
+
+def test_api_fx_roundtrip_and_validation(offline):
+    from stockwatch.web import app
+    c = app.test_client()
+    r = c.put("/api/us/positions/AAA", json={"qty": 2, "avg_price": 130, "fx_buy": 1352.5}, headers=H)
+    assert r.status_code == 200 and strict(r)["fx_buy"] == 1352.5
+    assert strict(c.get("/api/us/positions"))[0]["fx_buy"] == 1352.5
+    bad = c.put("/api/us/positions/AAA", json={"qty": 2, "avg_price": 130, "fx_buy": 0.00073}, headers=H)
+    assert bad.status_code == 400 and "환율" in strict(bad)["error"]
+    assert strict(c.get("/api/us/positions"))[0]["fx_buy"] == 1352.5                                 # 거절된 요청은 기존 값을 바꾸지 않는다

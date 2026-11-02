@@ -20,7 +20,7 @@ from . import db, indicators as ind, marketdb
 ET, KST = ZoneInfo("America/New_York"), ZoneInfo("Asia/Seoul")
 CLOSED_AFTER = time(16, 30)       # 정규장 마감 16:00 + 여유. 이 시각 전의 오늘 봉은 장중 값이다
 MARKET = {"^IXIC": "나스닥 종합", "^NDX": "나스닥100", "^SOX": "필라델피아 반도체", "^RUT": "러셀2000(소형주)", "QQQ": "QQQ (나스닥100 ETF)",
-          "IWM": "IWM (러셀2000 ETF)", "^VIX": "VIX (변동성)", "^TNX": "미 국채 10년 금리", "DX-Y.NYB": "달러 인덱스"}
+          "IWM": "IWM (러셀2000 ETF)", "^VIX": "VIX (변동성)", "^TNX": "미 국채 10년 금리", "DX-Y.NYB": "달러 인덱스", "KRW=X": "원/달러 환율"}
 LIVE = {"NQ=F": "나스닥100 선물"}   # 거의 24시간 거래라 일봉으로 저장하지 않고, 지금 값만 짧게 캐시해서 보여준다
 BENCH = {"nasdaq": "^IXIC", "small": "IWM"}
 MAX_WATCH = 40

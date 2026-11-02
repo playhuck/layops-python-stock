@@ -4,7 +4,7 @@ import { num, pct, usd } from "../format";
 import type { HoldingsView, UsJudgmentStock, UsStock } from "../types";
 import ChartCard from "./ChartCard";
 import Evidence from "./Evidence";
-import { cls, px2, Verdict } from "./UsShared";
+import { cls, krwBreakdown, px2, Verdict } from "./UsShared";
 
 /** 미국 종목 상세(홈 > 미국 탭에서 연다): 지표 요약, 매수 검토 근거, 내 보유 한 줄, 차트(내 평단선) */
 export default function UsStockPage({ symbol, holdings, onBack, onToast, onRemoved }: { symbol: string; holdings: HoldingsView | null; onBack: () => void; onToast: (m: string) => void; onRemoved: () => void }) {
@@ -48,7 +48,10 @@ export default function UsStockPage({ symbol, holdings, onBack, onToast, onRemov
                 <div><span>평균 매수가</span><b>${px2(mine.position.avg_price)}</b></div>
                 <div><span>평가손익</span><b className={cls(mine.sell.pnl_pct)}>{pct(mine.sell.pnl_pct)} · {mine.sell.pnl_value != null && `${mine.sell.pnl_value >= 0 ? "+" : "-"}$${Math.abs(mine.sell.pnl_value).toLocaleString("en-US", { maximumFractionDigits: 0 })}`}</b></div>
                 <div><span>매도 검토</span><b><Verdict v={mine.sell.verdict} /></b></div>
+                {mine.krw?.available && <div><span>원화 평가손익</span><b className={cls(mine.krw.pnl_pct)}>{pct(mine.krw.pnl_pct)} · {mine.krw.pnl_krw! >= 0 ? "+" : "-"}{Math.abs(Math.round(mine.krw.pnl_krw!)).toLocaleString("ko-KR")}원</b></div>}
+                {mine.krw?.available && <div><span>환율(매수 → 현재)</span><b>{mine.krw.fx_buy?.toLocaleString("ko-KR")} → {mine.krw.fx_now?.toLocaleString("ko-KR", { maximumFractionDigits: 1 })}원</b></div>}
               </div>
+              {mine.krw && <p className="us-levels" style={{ margin: "0 0 6px" }}>{mine.krw.available ? krwBreakdown(mine.krw) : `원화 손익: ${mine.krw.reason}`}</p>}
               <small className="muted">{mine.sell.verdict.reason ?? ""} · 보유 입력·수정과 매도 근거는 미국 탭의 '내 보유 종목'에서 볼 수 있어요 · 차트의 주황 점선이 내 평단이에요</small>
             </section>
           )}
