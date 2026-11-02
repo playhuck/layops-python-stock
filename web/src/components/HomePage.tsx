@@ -2,9 +2,12 @@ import { avatarColor, signed, verdictClass, won } from "../format";
 import { useState } from "react";
 import type { Dashboard, HoldingsSource, HoldingsView } from "../types";
 import { krHolding, krUnknownNote, pnlPct, SourceToggle } from "./Holdings";
+import UsWatchTable from "./UsWatchTable";
 import Sparkline from "./Sparkline";
 
-export default function HomePage({ data: d, onOpen, onAdd, holdings, onSource }: { data: Dashboard; onOpen: (code: string) => void; onAdd: () => void; holdings: HoldingsView | null; onSource: (s: HoldingsSource) => void }) {
+export type Market = "kr" | "us";
+
+export default function HomePage({ data: d, onOpen, onAdd, holdings, onSource, mkt, onMarket, usVersion, onOpenUs, onToast }: { data: Dashboard; onOpen: (code: string) => void; onAdd: (m: Market) => void; holdings: HoldingsView | null; onSource: (s: HoldingsSource) => void; mkt: Market; onMarket: (m: Market) => void; usVersion: number; onOpenUs: (symbol: string) => void; onToast: (m: string) => void }) {
   const data = { ...d, waiting: d.waiting ?? [] };  // 구버전 서버 응답에도 화면이 죽지 않도록
   const [cat, setCat] = useState<string>("");
   const market = Object.entries(data.market ?? {});
@@ -15,9 +18,26 @@ export default function HomePage({ data: d, onOpen, onAdd, holdings, onSource }:
   const count = (c: string) => data.results.filter((r) => verdictClass(r.verdict) === c).length;
   const fgn = (r: Dashboard["results"][number]) => r.detail.flow7d?.foreign;
 
+  const mktTabs = (
+    <div className="seg mkt-tabs" role="group" aria-label="시장 선택" style={{ maxWidth: 260 }}>
+      {([["kr", "한국"], ["us", "미국"]] as const).map(([k, l]) => <button key={k} className={mkt === k ? "on" : ""} aria-pressed={mkt === k} onClick={() => onMarket(k)}>{l}</button>)}
+    </div>
+  );
+  if (mkt === "us") {      // 미국 탭: 표가 가로로 길어 전체 폭을 쓴다
+    return (
+      <div>
+        {mktTabs}
+        <div className="section-title" style={{ marginTop: 12 }}>관심 종목 <small>미국 (나스닥)</small></div>
+        <div className="src-row"><small>보유 표시</small><SourceToggle source={holdings?.source ?? "manual"} onChange={onSource} /></div>
+        <UsWatchTable holdings={holdings} version={usVersion} onOpen={onOpenUs} onAdd={() => onAdd("us")} onToast={onToast} />
+        <p className="disclaimer">참고용 분석이며 투자 판단과 손실 책임은 본인에게 있습니다.</p>
+      </div>
+    );
+  }
   return (
     <div className="cols">
       <div className="col-main">
+        <div style={{ order: 1, marginBottom: 12 }}>{mktTabs}</div>
         <div className="section-title" style={{ order: 2 }}>관심 종목 <small>{data.results.length + data.waiting.length}개</small></div>
         <div className="src-row" style={{ order: 2 }}><small>보유 표시</small><SourceToggle source={holdings?.source ?? "manual"} onChange={onSource} />{krUnknownNote(holdings) && <small className="neg">{krUnknownNote(holdings)}</small>}</div>
         {tags.length > 1 && <div className="chips filter" style={{ order: 2 }}><button className={`chip fil${cat === "" ? " on" : ""}`} onClick={() => setCat("")}>전체</button>{tags.map((t) => <button key={t} className={`chip fil${cat === t ? " on" : ""}`} onClick={() => setCat(t)}>{t} <small>{tagCount[t]}</small></button>)}</div>}
@@ -49,7 +69,7 @@ export default function HomePage({ data: d, onOpen, onAdd, holdings, onSource }:
             </div>
           ))}
           {data.results.length === 0 && data.waiting.length === 0 && <p className="empty">관심 종목을 추가해 보세요</p>}
-          <button className="row add-row" onClick={onAdd}>＋ 종목 추가</button>
+          <button className="row add-row" onClick={() => onAdd("kr")}>＋ 종목 추가</button>
         </section>
         <p className="disclaimer" style={{ order: 9 }}>참고용 분석이며 투자 판단과 손실 책임은 본인에게 있습니다.</p>
       </div>

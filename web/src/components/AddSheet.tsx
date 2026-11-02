@@ -2,8 +2,10 @@ import { useEffect, useState } from "react";
 import { addStock, searchStocks } from "../api";
 import { avatarColor, mktLabel } from "../format";
 import type { SearchHit } from "../types";
+import UsAddPanel from "./UsAdd";
 
-export default function AddSheet({ onClose, onAdded }: { onClose: () => void; onAdded: (name: string) => void }) {
+export default function AddSheet({ market: initial = "kr", onClose, onAdded, onUsAdded, onToast }: { market?: "kr" | "us"; onClose: () => void; onAdded: (name: string) => void; onUsAdded: (symbol: string) => void; onToast: (m: string) => void }) {
+  const [market, setMarket] = useState<"kr" | "us">(initial);
   const [q, setQ] = useState("");
   const [group, setGroup] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
@@ -34,6 +36,10 @@ export default function AddSheet({ onClose, onAdded }: { onClose: () => void; on
       <div className="sheet" onClick={(e) => e.stopPropagation()}>
         <div className="grab" />
         <h2 style={{ margin: "0 0 14px", fontSize: 20 }}>종목 추가</h2>
+        <div className="seg" style={{ marginBottom: 12 }} role="group" aria-label="시장 선택">
+          {([["kr", "한국"], ["us", "미국"]] as const).map(([k, l]) => <button key={k} className={market === k ? "on" : ""} onClick={() => setMarket(k)}>{l}</button>)}
+        </div>
+        {market === "us" ? <UsAddPanel onAdded={onUsAdded} onToast={onToast} /> : <>
         <input className="input" autoFocus placeholder="종목명 또는 코드 (예: 삼성전자, 005930)" value={q} onChange={(e) => setQ(e.target.value)} />
         <input className="input" style={{ marginTop: 8 }} placeholder="업종 직접 지정 (선택) — 비워두면 토스 분류로 자동 설정돼요" value={group} onChange={(e) => setGroup(e.target.value)} />
         {err && <p className="warn">{err}</p>}
@@ -49,6 +55,7 @@ export default function AddSheet({ onClose, onAdded }: { onClose: () => void; on
           {q.trim() && !loading && hits.length === 0 && !err && <p className="empty">검색 결과가 없어요</p>}
         </div>
         <small>코스피·코스닥 상장 종목을 검색해요. 추가하면 시세·수급을 바로 가져오고, 업종은 자동으로 분류해 업종 쏠림을 검사해요.</small>
+        </>}
       </div>
     </div>
   );
