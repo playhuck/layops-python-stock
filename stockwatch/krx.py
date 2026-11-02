@@ -1,4 +1,5 @@
 """KRX 정보데이터시스템(data.krx.co.kr) 로그인 + 개별종목 투자자별 순매수 수집. 계정은 .env 의 ID/PW."""
+import time
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -11,6 +12,8 @@ LOGIN_URL = f"{BASE}/contents/MDC/COMS/client/MDCCOMS001D1.cmd"
 JSON_URL = f"{BASE}/comm/bldAttendant/getJsonData.cmd"
 REFERER = f"{BASE}/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC0201"
 ROOT = Path(__file__).resolve().parent.parent
+RETRY_WAITS = (1, 3)        # 5xx·연결 오류: 이 간격(초)으로 재시도 (최대 2회). 읽기 시간 초과는 1회만
+BREAKER_AFTER = 3           # 호출이 연달아 이만큼 최종 실패하면 이 세션에서는 더 두드리지 않고 바로 실패
 
 
 from .envfile import env as _env  # noqa: E402
@@ -20,6 +23,7 @@ class KrxClient:
     def __init__(self):
         self.s = requests.Session()
         self.s.headers.update({"User-Agent": "stockwatch/0.1 (personal use)", "Referer": REFERER})
+        self._fails = 0
 
     def login(self) -> str:
         self.s.get(LOGIN_PAGE, timeout=15)
@@ -34,9 +38,34 @@ class KrxClient:
         return code
 
     def post(self, bld: str, **params) -> dict:
-        r = self.s.post(JSON_URL, data={"bld": bld, **params}, timeout=20)
-        r.raise_for_status()
-        return r.json()
+        """일시적 오류(5xx·연결 오류)는 재시도한다. 4xx(요청·세션 문제)는 재시도해도 같으므로 바로 실패.
+        연속 실패가 BREAKER_AFTER 번 쌓이면 서버가 죽은 것으로 보고 같은 세션의 나머지 호출은 기다리지 않고 실패시킨다."""
+        if self._fails >= BREAKER_AFTER:
+            raise RuntimeError(f"KRX 응답 없음: 연속 {self._fails}회 실패로 이번 수집에서는 더 시도하지 않음")
+        waits = list(RETRY_WAITS)
+        tries = 0
+        while True:
+            tries += 1
+            try:
+                r = self.s.post(JSON_URL, data={"bld": bld, **params}, timeout=20)
+                if r.status_code >= 500:
+                    raise requests.HTTPError(f"{r.status_code} 서버 오류", response=r)
+                r.raise_for_status()
+                data = r.json()
+                self._fails = 0
+                return data
+            except requests.Timeout as e:
+                retryable, waits = tries == 1, waits[:1]
+                err = e
+            except (requests.ConnectionError, requests.HTTPError) as e:
+                status = getattr(e.response, "status_code", None)
+                retryable = status is None or status >= 500
+                err = e
+            if not retryable or not waits:
+                self._fails += 1
+                note = f" (재시도 {tries - 1}회 후 실패)" if tries > 1 else ""
+                raise RuntimeError(f"KRX 요청 실패 {bld}: {err}{note}") from err
+            time.sleep(waits.pop(0))
 
 
 # KRX 개별종목 투자자별 일별 순매수(거래량) 컬럼 순서: 기관합계, 기타법인, 개인, 외국인합계 (pykrx 컬럼 순서 기준)
