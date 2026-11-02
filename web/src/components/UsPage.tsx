@@ -4,6 +4,7 @@ import { pct } from "../format";
 import type { HoldingsSource, HoldingsView, UsJudgment, UsJudgmentStock, UsOverview, UsReview } from "../types";
 import Evidence from "./Evidence";
 import { SourceToggle } from "./Holdings";
+import UsHoldingForm, { HOLD_EMPTY, holdBody, holdFormFrom } from "./UsHoldingForm";
 import { cls, KrwInline, krwBreakdown, px2, Verdict } from "./UsShared";
 import UsStrip from "./UsStrip";
 
@@ -49,28 +50,26 @@ export default function UsPage({ onToast, holdings, onSource, onHoldings, onOpen
   );
 }
 
-const EMPTY = { symbol: "", qty: "", avg: "", date: "", note: "", atr: "", fx: "" };
 const ATR_SRC = { opened: "매수일 직전 종가 기준", registered: "등록 시점 기준", manual: "직접 입력" };
 
 /** 직접 입력한 보유 종목과 매도 검토. 주문은 없고, 저장한 값은 판단의 입력으로만 쓰인다 */
 function Holdings({ jd, jdErr, source, onSource, onChanged, onToast }: { jd: UsJudgment | null; jdErr: boolean; source: HoldingsSource; onSource: (s: HoldingsSource) => void; onChanged: () => void; onToast: (m: string) => void }) {
-  const [f, setF] = useState(EMPTY);
+  const [f, setF] = useState(HOLD_EMPTY);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
   const [del, setDel] = useState<string | null>(null);
   const held = (jd?.stocks ?? []).filter((s): s is UsJudgmentStock & { position: NonNullable<UsJudgmentStock["position"]>; sell: UsReview } => !!s.position && !!s.sell);
-  const set = (k: keyof typeof EMPTY) => (e: { target: { value: string } }) => setF((cur) => ({ ...cur, [k]: e.target.value }));
   const submit = async (e: { preventDefault: () => void }) => {
     e.preventDefault();
     const symbol = f.symbol.trim().toUpperCase();
     setBusy(true);
     try {
-      await putUsPosition(symbol, { qty: Number(f.qty), avg_price: Number(f.avg), opened_on: f.date || null, note: f.note, entry_atr: f.atr.trim() === "" ? null : Number(f.atr), fx_buy: f.fx.trim() === "" ? null : Number(f.fx.replace(/,/g, "")) });
-      setF(EMPTY); onToast(`${symbol} 보유를 저장했어요`); onChanged();
+      await putUsPosition(symbol, holdBody(f));
+      setF(HOLD_EMPTY); onToast(`${symbol} 보유를 저장했어요`); onChanged();
     } catch (err) { onToast((err as Error).message); }
     setBusy(false);
   };
-  const edit = (p: UsJudgmentStock["position"]) => p && setF({ symbol: p.symbol, qty: String(p.qty), avg: String(p.avg_price), date: p.opened_on ?? "", note: p.note, atr: p.entry_atr_source === "manual" && p.entry_atr != null ? String(p.entry_atr) : "", fx: p.fx_buy != null ? String(p.fx_buy) : "" });
+  const edit = (p: UsJudgmentStock["position"]) => p && setF(holdFormFrom(p));
   const remove = async (symbol: string) => {
     if (del !== symbol) { setDel(symbol); setTimeout(() => setDel((cur) => (cur === symbol ? null : cur)), 3000); return; }   // 두 번 눌러야 지운다
     try { await deleteUsPosition(symbol); setDel(null); onToast(`${symbol} 보유 등록을 지웠어요`); onChanged(); } catch (err) { onToast((err as Error).message); }
@@ -80,17 +79,9 @@ function Holdings({ jd, jdErr, source, onSource, onChanged, onToast }: { jd: UsJ
       <div className="toolbar"><h2 style={{ margin: "0 0 4px" }}>내 보유 종목 <small>(매도 검토)</small></h2><SourceToggle source={source} onChange={onSource} /></div>
       {source === "import" ? <p className="empty">미국 종목은 토스에서 가져오기를 지원하지 않아요. 직접 입력한 보유를 보려면 위에서 "직접 입력"을 선택하세요.</p> : <>
       <p className="us-note">직접 입력한 종목만 판단해요. 주문은 나가지 않고, 매수·매도는 직접 하세요. 평가손익은 달러 기준이고(손절·목표 판단도 달러 기준), 매수 환율을 넣으면 원화 손익을 따로 보여줘요. 수수료·세금·배당은 빠져 있어요. 액면분할·역분할이 있으면 수량과 평균 매수가를 직접 고쳐 주세요. {jd?.note ?? ""}</p>
-      <form className="us-form" onSubmit={submit}>
-        <label>티커<input className="input sm" value={f.symbol} onChange={set("symbol")} placeholder="SOUN" maxLength={5} required /></label>
-        <label>수량<input className="input sm" value={f.qty} onChange={set("qty")} placeholder="10" inputMode="decimal" required /></label>
-        <label>평균 매수가($)<input className="input sm" value={f.avg} onChange={set("avg")} placeholder="11.20" inputMode="decimal" required /></label>
-        <label>매수일(선택)<input className="input sm wide" type="date" value={f.date} onChange={set("date")} /></label>
-        <label title="매수한 날 적용된 원/달러 환율(예: 1350). 넣으면 원화 기준 손익을 보여줘요. 모르면 비워두세요">매수 환율(원/$, 선택)<input className="input sm" value={f.fx} onChange={set("fx")} placeholder="1350" inputMode="decimal" /></label>
-        <label title="비우면 매수일 직전(없으면 지금) 시세로 자동 계산해요. 손절·목표·트레일링은 이 값으로 고정돼요">진입 ATR($, 선택)<input className="input sm" value={f.atr} onChange={set("atr")} placeholder="자동" inputMode="decimal" /></label>
-        <label>메모(선택)<input className="input sm wide" value={f.note} onChange={set("note")} maxLength={200} /></label>
-        <button className="add" type="submit" disabled={busy}>{busy ? "저장 중…" : "저장"}</button>
-        {f.symbol && <button className="add" type="button" onClick={() => setF(EMPTY)}>입력 비우기</button>}
-      </form>
+      <UsHoldingForm f={f} setF={setF} busy={busy} onSubmit={submit}>
+        {f.symbol && <button className="add" type="button" onClick={() => setF(HOLD_EMPTY)}>입력 비우기</button>}
+      </UsHoldingForm>
       {jdErr && <p className="warn">판단을 불러오지 못했어요. 잠시 후 다시 시도해 주세요</p>}
       {!jd && !jdErr && <p className="empty">불러오는 중…</p>}
       {jd && held.length === 0 && <p className="empty">등록한 보유 종목이 없어요. 위에서 티커·수량·평균 매수가를 입력해 보세요. 관심 종목에 없으면 자동으로 추가돼요.</p>}

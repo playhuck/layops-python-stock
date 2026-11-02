@@ -85,7 +85,7 @@ export default function App() {
 
       <div className="app">
         {tab === "home" && usSel ? (
-          <UsStockPage symbol={usSel} holdings={holdings} onBack={back} onToast={show} onRemoved={() => { setUsVersion((v) => v + 1); navigate({ tab: "home", code: null }, true); }} />
+          <UsStockPage symbol={usSel} holdings={holdings} onSource={changeSource} onHoldings={loadHoldings} onBack={back} onToast={show} onRemoved={() => { setUsVersion((v) => v + 1); navigate({ tab: "home", code: null }, true); }} />
         ) : tab === "home" && sel ? (
           <StockPage r={sel} holdings={holdings} onSource={changeSource} onHoldings={loadHoldings} onBack={back} onToast={show} onRemoved={() => { navigate({ tab: "home", code: null }, true); load(); }} />
         ) : (
