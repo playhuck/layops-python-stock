@@ -68,7 +68,7 @@ export default function ChartCard({ code, source = fetchSeries, profile = fetchP
   const [data, setData] = useState<Row[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [view, setView] = useState<View>("price");
-  const [solo, setSolo] = useState<string | null>(null);   // 하나만 보기: 선택한 선의 key (null = 전체)
+  const [sel, setSel] = useState<string[]>([]);             // 포커스한 선의 key 목록. 비어 있으면 전체를 보여준다
   const [help, setHelp] = useState(false);
   const [profOn, setProfOn] = useState(true);
   const [profWin, setProfWin] = useState(120);
@@ -83,8 +83,8 @@ export default function ChartCard({ code, source = fetchSeries, profile = fetchP
     return () => { stale = true; };
   }, [code, profile, profOn, profWin]);
 
-  const series = SERIES[view], shown = series.filter((x) => !solo || x.key === solo);
-  const pick = (key: string) => setSolo((cur) => (cur === key ? null : key));
+  const series = SERIES[view], shown = series.filter((x) => sel.length === 0 || sel.includes(x.key));
+  const pick = (key: string) => setSel((cur) => (cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key]));    // 누르면 추가, 다시 누르면 빼기, 다 빠지면 전체
   const isKr = source === fetchSeries;
   const showProf = view === "price" && profOn;
   const helpItems: HelpItem[] = [...series.map((x) => ({ name: x.name, color: x.color, shape: (x.bar ? "bar" : x.dash ? "dash" : "line") as HelpItem["shape"], desc: x.desc + (isKr && x.kr ? ` ${x.kr}` : "") })), ...(REFS[view] ?? []), ...(showProf ? [PROFILE_HELP] : [])];
@@ -93,7 +93,7 @@ export default function ChartCard({ code, source = fetchSeries, profile = fetchP
   return (
     <section className="card">
       <div className="chart-head">
-        <div className="seg">{TABS.map(([k, l]) => <button key={k} className={view === k ? "on" : ""} onClick={() => { setView(k); setSolo(null); }}>{l}</button>)}</div>
+        <div className="seg">{TABS.map(([k, l]) => <button key={k} className={view === k ? "on" : ""} onClick={() => { setView(k); setSel([]); }}>{l}</button>)}</div>
         <HelpButton open={help} onClick={() => setHelp((v) => !v)} controls="chart-help" />
       </div>
       {help && <HelpPanel id="chart-help" title={`${tabName} 차트 선 설명`} items={helpItems} onClose={() => setHelp(false)} />}
@@ -127,7 +127,7 @@ export default function ChartCard({ code, source = fetchSeries, profile = fetchP
               {view === "macd" && <ReferenceLine y={0} stroke="#8b95a1" />}
               {[...shown].sort((x, y) => Number(!!y.bar) - Number(!!x.bar)).map((x) => x.bar
                 ? <Bar key={x.key} dataKey={x.key} name={x.name} fill={x.color} radius={[3, 3, 0, 0]} isAnimationActive={false} onClick={() => pick(x.key)} cursor="pointer" />
-                : <Line key={x.key} type="monotone" dataKey={x.key} name={x.name} stroke={x.color} dot={false} strokeWidth={solo ? (x.w ?? 1.6) + 0.6 : x.w ?? 1.6}
+                : <Line key={x.key} type="monotone" dataKey={x.key} name={x.name} stroke={x.color} dot={false} strokeWidth={sel.length ? (x.w ?? 1.6) + 0.6 : x.w ?? 1.6}
                         strokeDasharray={x.dash} isAnimationActive={false} activeDot={{ r: 4, onClick: () => pick(x.key) }} style={{ cursor: "pointer" }} onClick={() => pick(x.key)} />)}
             </ComposedChart>
           </ResponsiveContainer>
@@ -135,15 +135,18 @@ export default function ChartCard({ code, source = fetchSeries, profile = fetchP
       )}
       {data && series.length > 1 && (
         <div className="legend" role="group" aria-label="차트 선 목록">
-          {series.map((x) => (
-            <button key={x.key} className={`lg${solo === x.key ? " on" : ""}${solo && solo !== x.key ? " dim" : ""}`} onClick={() => pick(x.key)} aria-pressed={solo === x.key}
-                    title={solo === x.key ? "다시 누르면 전체 보기" : `${x.name}만 보기`}>
+          {series.map((x) => {
+            const on = sel.includes(x.key);
+            return (
+            <button key={x.key} className={`lg${on ? " on" : ""}${sel.length && !on ? " dim" : ""}`} onClick={() => pick(x.key)} aria-pressed={on}
+                    title={on ? (sel.length === 1 ? "다시 누르면 선택을 풀고 전체를 봐요" : "다시 누르면 선택에서 빼요") : sel.length ? `${x.name}도 함께 보기` : `${x.name}만 보기`}>
               <i style={{ background: x.color, borderTop: x.dash ? `2px dashed ${x.color}` : undefined, height: x.bar ? 8 : x.dash ? 0 : 3 }} />{x.name}
-            </button>))}
-          {solo && <button className="lg reset" onClick={() => setSolo(null)}>전체 보기</button>}
+            </button>);
+          })}
+          {sel.length > 0 && <button className="lg reset" onClick={() => setSel([])}>전체 보기</button>}
         </div>
       )}
-      {data && <p className="legend-hint">{GUIDE[view] ?? ""}{series.length > 1 ? `${GUIDE[view] ? " · " : ""}선 이름을 누르면 그 선만 봐요` : ""}</p>}
+      {data && <p className="legend-hint">{GUIDE[view] ?? ""}{series.length > 1 ? `${GUIDE[view] ? " · " : ""}선 이름을 누르면 그 선만 보고, 다른 선을 누르면 함께 봐요 (다시 누르면 빼요)` : ""}</p>}
     </section>
   );
 }
