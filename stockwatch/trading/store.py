@@ -1,6 +1,7 @@
 """트레이딩 상태 저장소 (PostgreSQL). 제안/규칙/원장/감사로그/전역 스위치/푸시 토큰.
 시각 컬럼은 ISO 문자열(TEXT)로 유지한다: 화면/기존 로직이 문자열 슬라이스에 의존하기 때문."""
 import json
+import math
 from datetime import datetime
 
 from .. import db as dbm
@@ -168,6 +169,52 @@ class Store:
         from datetime import timedelta
         cutoff = (datetime.now() - timedelta(seconds=seconds)).isoformat(timespec="seconds")
         return [self._prop(r) for r in self.db.execute("SELECT * FROM proposals WHERE status='approving' AND decided_at < ? ORDER BY id", (cutoff,))]
+
+    def entry_basis(self, code: str, held_qty: int, held_avg: float, avg_tol: float = 0.01) -> dict:
+        """현재 보유 포지션을 연 매수의 '진입 기준'(제안 시점 ATR)을 원장에서 찾는다. 손절·목표를 진입 당시 ATR 로 고정하기 위한 것.
+        성공: {"ok": True, "atr", "proposal_id", "ledger_id", "ledger_qty", "avg_price"} / 실패: {"ok": False, "reason"}.
+        원장과 토스 보유가 어긋나면(외부 매매 의심) 과거 ATR 을 새 포지션에 적용하지 않도록 반드시 실패로 돌려준다:
+        미해결 원장 불일치, 재고 음수, 포지션 구간의 매수가 한 제안이 아님, 원장 재고≠토스 수량, 원장 평균단가≠토스 평단(avg_tol),
+        제안이 없거나 종목·방향이 다름, sizing.atr 이 유한한 양수가 아님."""
+        fail = lambda reason: {"ok": False, "reason": reason}
+        if code in self.unreconciled():
+            return fail("원장 불일치 확인 필요")
+        inv, buys, broken = 0, [], False
+        for r in self.db.execute("SELECT id,side,qty,price,proposal_id FROM ledger WHERE code=? ORDER BY id", (code,)).fetchall():
+            if r["side"] == "BUY":
+                if inv == 0:
+                    buys = []                                   # 재고 0 에서 시작하는 매수 = 새 포지션 구간의 시작
+                    broken = False
+                inv += int(r["qty"]); buys.append(r)
+            else:
+                inv -= int(r["qty"])
+                if inv < 0:
+                    broken = True                               # 원장에 없는 재고를 팔았다 → 이 구간의 진입 기준을 믿을 수 없다
+                elif inv == 0:
+                    buys, broken = [], False
+        if broken or inv < 0:
+            return fail("원장 재고가 음수가 된 적이 있어요")
+        if inv <= 0 or not buys:
+            return fail("원장에 열린 포지션이 없어요")
+        if inv != int(held_qty):
+            return fail(f"원장 재고 {inv}주 ≠ 토스 보유 {int(held_qty)}주")
+        pids = {b["proposal_id"] for b in buys}
+        if None in pids:
+            return fail("제안 번호가 없는 매수가 섞여 있어요")
+        if len(pids) != 1:
+            return fail("서로 다른 매수 제안이 섞여 있어요")
+        qty_sum = sum(int(b["qty"]) for b in buys)
+        led_avg = sum(int(b["qty"]) * float(b["price"]) for b in buys) / qty_sum
+        if not held_avg or abs(held_avg / led_avg - 1) > avg_tol:
+            return fail(f"원장 평균단가 {led_avg:,.0f} ≠ 토스 평단 {held_avg:,.0f}")
+        pid = pids.pop()
+        p = self.proposal(int(pid))
+        if not p or p["code"] != code or p["side"] != "BUY":
+            return fail(f"제안 #{pid} 이 이 종목의 매수가 아니에요")
+        atr = (p.get("sizing") or {}).get("atr")
+        if not isinstance(atr, (int, float)) or isinstance(atr, bool) or not math.isfinite(atr) or atr <= 0:
+            return fail(f"제안 #{pid} 에 ATR 기록이 없어요")
+        return {"ok": True, "atr": float(atr), "proposal_id": int(pid), "ledger_id": int(buys[0]["id"]), "ledger_qty": inv, "avg_price": led_avg}
 
     def realized_month(self) -> float:
         """이번 달 실현손익(평균단가법, 수수료 포함). 원장에 기록된 체결만 반영."""

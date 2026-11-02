@@ -379,13 +379,18 @@ class Engine:
         t, last = self.t, d.iloc[-1]
         stop_k, target_k, trail_k = self._levels(code)
         avg = held["avg"]; hi20 = float(d["close"].tail(20).max())
+        # 손절·목표는 '진입 당시 ATR'로 고정한다(오늘 ATR 을 쓰면 변동성이 커질수록 손절선이 내려가 손실 허용폭이 늘어난다).
+        # 원장과 토스 보유가 어긋나면(외부 매매 의심) 과거 ATR 을 쓰지 않고 현재 ATR 로 대체하며 그렇다고 표시한다. 트레일링은 현재 ATR 을 유지한다.
+        basis = self.store.entry_basis(code, held["qty"], avg)
+        basis_atr = basis["atr"] if basis["ok"] else atr
+        fixed_note = f"진입 ATR {basis_atr:,.0f} 고정 · 제안 #{basis['proposal_id']}" if basis["ok"] else f"현재 ATR {atr:,.0f} 사용 · 진입 기록을 쓸 수 없어요({basis['reason']})"
         ev = [
-            chk("손절선 이탈(진입가-ATR배수)", ref <= avg - stop_k * atr, f"현재 {ref:,.0f} / 손절선 {avg - stop_k * atr:,.0f}", f"ATR×{stop_k}"),
-            chk("트레일링 스탑(20일 고점-ATR배수)", ref <= hi20 - trail_k * atr, f"현재 {ref:,.0f} / 기준 {hi20 - trail_k * atr:,.0f}", f"ATR×{trail_k}"),
+            chk("손절선 이탈(진입가-ATR배수)", ref <= avg - stop_k * basis_atr, f"현재 {ref:,.0f} / 손절선 {avg - stop_k * basis_atr:,.0f}", f"ATR×{stop_k} · {fixed_note}"),
+            chk("트레일링 스탑(20일 고점-ATR배수)", ref <= hi20 - trail_k * atr, f"현재 {ref:,.0f} / 기준 {hi20 - trail_k * atr:,.0f}", f"ATR×{trail_k} · 현재 ATR {atr:,.0f} · 최근 20일 고점 기준"),
             chk("20일선 이탈", last["close"] < last["ma20"], f"종가 {last['close']:,.0f} / 20일선 {last['ma20']:,.0f}", "종가 < 20일선"),
             chk("매도 점수", res.sell_score >= t.get("sell_min_score", 25), str(res.sell_score), f">= {t.get('sell_min_score', 25)}"),
             chk("RSI 과매수", last["rsi"] >= 70, f"{last['rsi']:.0f}", ">= 70"),
-            chk("목표가 도달(진입가+ATR배수)", ref >= avg + target_k * atr, f"현재 {ref:,.0f} / 목표 {avg + target_k * atr:,.0f}", f"ATR×{target_k}"),
+            chk("목표가 도달(진입가+ATR배수)", ref >= avg + target_k * basis_atr, f"현재 {ref:,.0f} / 목표 {avg + target_k * basis_atr:,.0f}", f"ATR×{target_k} · {fixed_note}"),
         ]
         triggered = any(e["passed"] for e in ev) and not self.store.in_flight(code, "SELL")
         pid = None

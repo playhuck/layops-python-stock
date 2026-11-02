@@ -333,3 +333,150 @@ def test_profile_info_failure_while_building_text_does_not_break_the_review(env,
     scr = e.generate()[CODE]["buy"]
     assert scr["passed"] and scr["proposal_id"]
     assert [c for c in scr["evidence"] if c.get("kind") == "info"][0]["value"].startswith("계산 오류")
+
+
+# -- 진입 ATR 고정 (원장·토스 보유 검증) --------------------------------------------------------------
+def buy_prop(store, atr=2500.0, code=CODE, side="BUY", sizing="atr"):
+    return store.add_proposal(code=code, name="x", side=side, qty=10, price=100_000, stop=95_000, target=110_000, evidence=[],
+                              sizing={"atr": atr} if sizing == "atr" else sizing, dry_run=False)
+
+
+def basis(store, qty=10, avg=100_000.0, code=CODE):
+    return store.entry_basis(code, qty, avg)
+
+
+def test_entry_basis_returns_the_structured_basis_of_the_opening_buy():
+    store = new_store()
+    pid = buy_prop(store, 2500.0)
+    store.add_ledger(CODE, "BUY", 10, 100_000.0, 0, pid)
+    b = basis(store)
+    assert b["ok"] and b["atr"] == 2500.0 and b["proposal_id"] == pid and b["ledger_qty"] == 10 and b["ledger_id"] and b["avg_price"] == 100_000.0
+
+
+def test_entry_basis_rejects_quantity_mismatch_and_external_trades():
+    store = new_store()
+    pid = buy_prop(store)
+    store.add_ledger(CODE, "BUY", 10, 100_000.0, 0, pid)
+    assert not basis(store, qty=9)["ok"] and "≠ 토스 보유" in basis(store, qty=9)["reason"]       # 외부에서 일부 매도
+    assert not basis(store, qty=11)["ok"]                                                            # 외부에서 추가 매수
+    assert not basis(store, qty=0)["ok"]
+
+
+def test_entry_basis_new_position_after_full_exit_uses_the_new_proposal():
+    store = new_store()
+    old, new = buy_prop(store, 2000.0), buy_prop(store, 3000.0)
+    store.add_ledger(CODE, "BUY", 10, 100_000.0, 0, old)
+    store.add_ledger(CODE, "SELL", 10, 105_000.0, 0, None)                                           # 전량 매도 → 재고 0
+    store.add_ledger(CODE, "BUY", 10, 120_000.0, 0, new)
+    b = basis(store, avg=120_000.0)
+    assert b["ok"] and b["atr"] == 3000.0 and b["proposal_id"] == new
+    partial = new_store(); p1 = buy_prop(partial, 2000.0)
+    partial.add_ledger(CODE, "BUY", 10, 100_000.0, 0, p1); partial.add_ledger(CODE, "SELL", 4, 105_000.0, 0, None)
+    pb = basis(partial, qty=6)
+    assert pb["ok"] and pb["atr"] == 2000.0 and pb["ledger_qty"] == 6                                # 일부 매도 후에도 같은 포지션
+
+
+def test_entry_basis_external_sell_and_rebuy_with_same_quantity_is_caught_by_average_price():
+    store = new_store()
+    pid = buy_prop(store)
+    store.add_ledger(CODE, "BUY", 10, 100_000.0, 0, pid)                                             # 시스템 매수 후 토스 앱에서 전량 매도·재매수(원장에는 없음)
+    assert not basis(store, avg=130_000.0)["ok"] and "평균단가" in basis(store, avg=130_000.0)["reason"]
+    assert basis(store, avg=100_900.0)["ok"] and not basis(store, avg=101_500.0)["ok"]                  # 허용 오차 1%
+
+
+def test_entry_basis_refuses_unreconciled_negative_inventory_and_mixed_buys():
+    store = new_store()
+    pid = buy_prop(store)
+    store.add_ledger(CODE, "BUY", 10, 100_000.0, 0, pid)
+    store.set_unreconciled(CODE, "확인 필요")
+    assert not basis(store)["ok"] and "불일치" in basis(store)["reason"]
+    store.clear_unreconciled(CODE)
+    assert basis(store)["ok"]
+    neg = new_store()                                                                                # 원장에 없는 재고를 판 기록(경고 없이 직접 넣어 재현)
+    neg.db.execute("INSERT INTO ledger(ts,code,side,qty,price,fee,proposal_id) VALUES('2026-10-01T00:00:00',?,'SELL',3,100000,0,NULL)", (CODE,))
+    neg.db.execute("INSERT INTO ledger(ts,code,side,qty,price,fee,proposal_id) VALUES('2026-10-02T00:00:00',?,'BUY',10,100000,0,?)", (CODE, buy_prop(neg)))
+    assert not basis(neg)["ok"] and "음수" in basis(neg)["reason"]
+    mixed = new_store()
+    mixed.add_ledger(CODE, "BUY", 5, 100_000.0, 0, buy_prop(mixed)); mixed.add_ledger(CODE, "BUY", 5, 100_000.0, 0, buy_prop(mixed, 9000.0))
+    assert not basis(mixed)["ok"] and "섞여" in basis(mixed)["reason"]
+    manual = new_store()
+    manual.add_ledger(CODE, "BUY", 10, 100_000.0, 0, None)
+    assert not basis(manual)["ok"] and "제안 번호" in basis(manual)["reason"]
+
+
+def test_entry_basis_validates_the_proposal_and_its_atr():
+    for label, kw in {"sell side": {"side": "SELL"}, "other code": {"code": "000660"}, "no atr": {"sizing": {}}, "zero": {"atr": 0.0},
+                      "negative": {"atr": -5.0}, "nan": {"atr": float("nan")}, "inf": {"atr": float("inf")}, "no sizing": {"sizing": None}}.items():
+        store = new_store()
+        pid = buy_prop(store, **kw)
+        store.add_ledger(CODE, "BUY", 10, 100_000.0, 0, pid)
+        assert not basis(store)["ok"], label
+    store = new_store()
+    store.add_ledger(CODE, "BUY", 10, 100_000.0, 0, 999_999)                                         # 존재하지 않는 제안
+    assert not basis(store)["ok"]
+
+
+def test_entry_basis_finds_an_old_proposal_even_beyond_the_latest_100():
+    store = new_store()
+    pid = buy_prop(store, 2222.0)
+    store.add_ledger(CODE, "BUY", 10, 100_000.0, 0, pid)
+    for _ in range(120):
+        buy_prop(store, 1.0, code="000660")
+    assert len(store.proposals(limit=100)) == 100 and all(p["id"] != pid for p in store.proposals(limit=100))
+    assert basis(store)["atr"] == 2222.0
+
+
+def held_position(env, widen=False):
+    e, store, fake = make(env, rule={"live": True}, live=True)
+    pid = first_buy(e); e.approve(pid); e.sync_orders()
+    qty = store.proposal(pid)["qty"]
+    fill = float(store.db.execute("SELECT price FROM ledger WHERE code=?", (CODE,)).fetchone()["price"])
+    fake.items = [{"symbol": CODE, "quantity": str(qty), "averagePurchasePrice": str(fill), "lastPrice": str(fill)}]
+    entry_atr = float(store.proposal(pid)["sizing"]["atr"])
+    if widen:                                                                                        # 진입 후 변동성이 커진 상황
+        df = e.prov.df.copy()
+        df.iloc[-15:, df.columns.get_loc("high")] *= 1.10; df.iloc[-15:, df.columns.get_loc("low")] *= 0.90
+        e.prov.df = df
+    return e, store, fake, pid, qty, fill, entry_atr
+
+
+def sell_ev(screen):
+    return {c["label"].split("(")[0]: c for c in screen[CODE]["sell"]["evidence"] if "label" in c}
+
+
+def test_sell_checks_fix_stop_and_target_to_the_entry_atr_but_keep_trailing_on_current_atr(env):
+    e, store, fake, pid, qty, fill, entry_atr = held_position(env, widen=True)
+    fake.px = fill * 0.5                                                                             # 어떤 손절선이든 이탈하도록
+    ev = sell_ev(e.generate())
+    cur_atr = float(e.generate()[CODE]["atr"])
+    assert cur_atr > entry_atr * 1.3                                                                 # 변동성이 실제로 커졌다
+    stop, target, trail = ev["손절선 이탈"], ev["목표가 도달"], ev["트레일링 스탑"]
+    assert f"손절선 {fill - 2.0 * entry_atr:,.0f}" in stop["value"] and f"진입 ATR {entry_atr:,.0f} 고정 · 제안 #{pid}" in stop["threshold"]
+    assert f"목표 {fill + 3.5 * entry_atr:,.0f}" in target["value"] and f"제안 #{pid}" in target["threshold"]
+    assert f"현재 ATR {cur_atr:,.0f}" in trail["threshold"] and "진입 ATR" not in trail["threshold"] and "20일 고점" in trail["threshold"]
+    hi20 = float(e.prov.df["close"].tail(20).max())
+    assert f"기준 {hi20 - 2.5 * cur_atr:,.0f}" in trail["value"]                                     # 트레일링은 현재 ATR 로 계산된다 (변수 분리)
+
+
+def test_sell_checks_fall_back_to_current_atr_and_say_why_when_holdings_do_not_match_the_ledger(env):
+    e, store, fake, pid, qty, fill, entry_atr = held_position(env, widen=True)
+    fake.items[0]["quantity"] = str(qty + 3)                                                         # 앱 밖에서 더 샀다
+    fake.px = fill * 0.5
+    scr = e.generate()
+    ev = sell_ev(scr)
+    cur_atr = float(scr[CODE]["atr"])
+    assert f"손절선 {fill - 2.0 * cur_atr:,.0f}" in ev["손절선 이탈"]["value"]
+    assert "현재 ATR" in ev["손절선 이탈"]["threshold"] and "원장 재고" in ev["손절선 이탈"]["threshold"] and "고정" not in ev["손절선 이탈"]["threshold"]
+    assert "제안 #" not in ev["목표가 도달"]["threshold"]
+
+
+def test_entry_basis_after_a_negative_stretch_is_rebalanced_to_zero_a_new_position_is_trusted():
+    store = new_store()
+    a, b = buy_prop(store, 1000.0), buy_prop(store, 7000.0)
+    ins = lambda side, qty, pid: store.db.execute("INSERT INTO ledger(ts,code,side,qty,price,fee,proposal_id) VALUES('2026-10-01T00:00:00',?,?,?,100000,0,?)", (CODE, side, qty, pid))
+    ins("SELL", 3, None)                                                                             # 원장에 없는 재고 매도 → 음수
+    assert not basis(store, qty=1)["ok"]
+    ins("BUY", 3, a)                                                                                 # 정확히 0 으로 맞춰짐
+    ins("BUY", 10, b)                                                                                # 그 뒤의 새 포지션은 이 제안만 본다
+    got = basis(store, qty=10)
+    assert got["ok"] and got["atr"] == 7000.0 and got["proposal_id"] == b
