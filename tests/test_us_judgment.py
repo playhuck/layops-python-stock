@@ -8,6 +8,7 @@ from stockwatch import us_judgment as uj
 
 TODAY = date(2026, 10, 30)
 GOOD_MKT = {"ok": True, "text": "VIX 16.0 · 나스닥 종합 50일선 위"}
+KNOWN = {"next_earnings": date(2026, 12, 15)}          # 실적일이 멀리 있다고 알려진 종목
 
 
 def frame(n=140, start=100.0, step=0.3, end="2026-10-29", vol=3_000_000.0, noise=3.0):
@@ -21,7 +22,7 @@ def bench(n=140, step=0.05):
 
 
 def review(df=None, **kw):
-    kw.setdefault("mkt", GOOD_MKT); kw.setdefault("bench", bench()); kw.setdefault("today", TODAY)
+    kw.setdefault("mkt", GOOD_MKT); kw.setdefault("bench", bench()); kw.setdefault("today", TODAY); kw.setdefault("meta", KNOWN)
     return uj.buy_review(frame() if df is None else df, **kw)
 
 
@@ -55,11 +56,15 @@ def test_earnings_within_a_week_blocks_even_when_everything_else_passes():
     assert far["verdict"]["code"] == "review" and passed(far, "실적 발표") is True
 
 
-def test_unknown_or_past_earnings_date_is_info_not_a_block():
+def test_unknown_or_past_earnings_date_is_a_labeled_review_not_a_plain_one():
     for meta in ({}, {"next_earnings": date(2026, 10, 1)}):
         r = review(meta=meta)
-        assert r["verdict"]["code"] == "review"
+        assert r["verdict"]["code"] == "review_check" and r["verdict"]["label"] == "매수 검토 · 실적일 확인 필요"
+        assert "직접 확인" in r["verdict"]["reason"]
         assert any(e.get("kind") == "info" and e["label"] == "실적 발표 일정" for e in r["evidence"])
+    assert review(meta=KNOWN)["verdict"]["code"] == "review"                      # 일정이 확인되면 그냥 '매수 검토'
+    blocked = review(meta={"next_earnings": date(2026, 11, 3)})
+    assert blocked["verdict"]["code"] == "blocked"                                  # 실적 임박은 여전히 차단
 
 
 def test_low_dollar_volume_and_stale_data_block():
@@ -162,10 +167,80 @@ def test_soft_conditions_give_caution_not_sell():
 
 
 def test_regime():
-    c = pd.Series(np.linspace(100, 160, 80), index=pd.bdate_range(end="2026-10-29", periods=80))
-    up = pd.DataFrame({"close": c})
-    assert uj.regime(pd.Series([16.0]), up)["ok"] is True
-    assert uj.regime(pd.Series([31.0]), up)["ok"] is False
-    assert uj.regime(pd.Series([16.0]), up.iloc[::-1].set_axis(up.index))["ok"] is False
-    assert uj.regime(None, up)["ok"] is None and uj.regime(pd.Series([16.0]), None)["ok"] is None
-    assert uj.regime(pd.Series([31.0]), None)["ok"] is False             # 하나라도 나쁘면 확인 불가보다 나쁨이 우선
+    idx = pd.bdate_range(end="2026-10-29", periods=80)
+    up = pd.DataFrame({"close": np.linspace(1000, 1160, 80)}, index=idx)
+    vix = lambda v, end="2026-10-29": pd.Series([v], index=pd.to_datetime([end]))
+    r = uj.regime(vix(16.0), up, today=TODAY)
+    assert r["ok"] is True and "2026-10-29 마감 기준" in r["text"] and r["as_of"] == "2026-10-29"
+    assert uj.regime(vix(31.0), up, today=TODAY)["ok"] is False
+    down = pd.DataFrame({"close": np.linspace(1160, 1000, 80)}, index=idx)
+    assert uj.regime(vix(16.0), down, today=TODAY)["ok"] is False
+    assert uj.regime(None, up, today=TODAY)["ok"] is None and uj.regime(vix(16.0), None, today=TODAY)["ok"] is None
+    assert uj.regime(vix(31.0), None, today=TODAY)["ok"] is False                 # 하나라도 나쁘면 확인 불가보다 나쁨이 우선
+
+
+def test_regime_refuses_mismatched_or_stale_dates():
+    idx = pd.bdate_range(end="2026-10-29", periods=80)
+    up = pd.DataFrame({"close": np.linspace(1000, 1160, 80)}, index=idx)
+    old_vix = pd.Series([16.0], index=pd.to_datetime(["2026-09-01"]))
+    r = uj.regime(old_vix, up, today=TODAY)
+    assert r["ok"] is None and "달라" in r["text"]                                 # 기준일 불일치: 한 달 전 VIX 로 정상 판정이 나면 안 된다
+    old_both = pd.DataFrame({"close": np.linspace(1000, 1160, 80)}, index=pd.bdate_range(end="2026-10-01", periods=80))
+    r2 = uj.regime(pd.Series([16.0], index=pd.to_datetime(["2026-10-01"])), old_both, today=TODAY)
+    assert r2["ok"] is None and "오래" in r2["text"]                                # 둘이 같아도 오래됐으면 확인 불가
+    bad_but_stale = uj.regime(pd.Series([40.0], index=pd.to_datetime(["2026-10-01"])), old_both, today=TODAY)
+    assert bad_but_stale["ok"] is None                                              # 오래된 값은 나쁜 쪽으로도 쓰지 않는다
+
+
+def test_regime_with_unmatched_mkt_blocks_the_buy_verdict():
+    r = review(mkt={"ok": None, "text": "VIX 기준일(2026-09-01)과 나스닥 기준일(2026-10-29)이 달라 확인할 수 없어요"})
+    assert r["verdict"]["code"] == "na" and "시장 환경" in r["verdict"]["reason"]
+
+
+# -- A단계: 최소 시세·매도 최신성·상대강도 정렬 ------------------------------------------------------
+def test_buy_requires_the_120_day_average_so_new_listings_are_held_back():
+    r = review(frame(n=80), bench=bench(80))
+    assert r["verdict"]["code"] == "na" and "120일선" in r["verdict"]["reason"] and r["evidence"] == []
+    assert review(frame(n=124), bench=bench(124))["verdict"]["code"] == "na"
+    assert review(frame(n=125), bench=bench(125))["verdict"]["code"] in {"review", "watch"}   # 120일선이 있으면 판단한다
+
+
+def test_sell_works_for_short_history_but_not_below_the_minimum():
+    assert sell(frame(n=45), avg=0.95)["verdict"]["code"] in {"hold", "caution", "sell"}
+    assert sell(frame(n=39), avg=0.95)["verdict"]["code"] == "na"
+
+
+def test_stale_prices_never_produce_hold_but_real_exit_signals_still_show():
+    old = frame(end="2026-10-01")                                                   # 마지막 봉이 29일 전
+    held = sell(old, avg=0.95)
+    assert held["verdict"]["code"] == "na" and "29일 전" in held["verdict"]["reason"]
+    stop = sell(old, avg=1.6)                                                       # 마지막 확인 시점에 이미 손절선 아래
+    assert stop["verdict"]["code"] == "sell" and "29일 전" in stop["verdict"]["reason"] and "손절선" in stop["verdict"]["reason"]
+    soft = sell(old, avg=0.95, meta={"next_earnings": date(2026, 11, 2)})
+    assert soft["verdict"]["code"] == "caution" and "29일 전" in soft["verdict"]["reason"]
+    fresh = sell(avg=0.95)
+    assert fresh["verdict"]["code"] == "hold" and any(e["label"] == "시세 최신성" for e in fresh["evidence"])
+
+
+def test_pnl_label_states_what_is_excluded():
+    head = sell(avg=0.95)["evidence"][0]
+    assert head["label"] == "보유" and all(w in head["threshold"] for w in ("수수료", "세금", "환율", "배당"))
+
+
+def test_relative_strength_uses_common_trading_days():
+    idx = pd.bdate_range(end="2026-10-29", periods=40)
+    stock = pd.Series(np.linspace(100, 140, 40), index=idx)
+    nas = pd.Series(np.linspace(1000, 1100, 40), index=idx)
+    full = uj._rs20(stock, nas)
+    assert full == pytest.approx((stock.iloc[-1] / stock.iloc[-21] - 1) * 100 - (nas.iloc[-1] / nas.iloc[-21] - 1) * 100)
+    gap = nas.drop(idx[-8:-5])                                                      # 나스닥에 3일이 빠졌다: 행 기준이면 기간이 어긋난다
+    j = pd.concat([stock, gap], axis=1, join="inner")
+    expect = (j.iloc[-1, 0] / j.iloc[-21, 0] - 1) * 100 - (j.iloc[-1, 1] / j.iloc[-21, 1] - 1) * 100
+    assert uj._rs20(stock, gap) == pytest.approx(expect)
+    assert uj._rs20(stock, nas.iloc[:-1]) is None                                   # 나스닥이 종목의 마지막 날짜를 모른다
+    assert uj._rs20(stock.iloc[:15], nas.iloc[:15]) is None                         # 공통 거래일 부족
+
+
+def test_buy_is_held_when_nasdaq_lags_the_stock_by_a_day():
+    r = review(bench=bench().iloc[:-1])
+    assert r["verdict"]["code"] == "na" and "상대강도" in r["verdict"]["reason"]

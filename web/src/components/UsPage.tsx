@@ -9,8 +9,8 @@ import UsStrip from "./UsStrip";
 const cls = (v: number | null | undefined) => (v == null ? "" : v >= 0 ? "pos" : "neg");
 // 시총(달러) 구간: 소형 0.3~2B, 중형 2~10B
 const CAPS: [string, number, number][] = [["소형+중형", 3e8, 1e10], ["소형", 3e8, 2e9], ["중형", 2e9, 1e10]];
-// 판정 → 칩 색: 매수 검토=빨강, 매도 검토=파랑, 주의=주황, 나머지는 회색 (한국 화면과 같은 색 약속)
-const CHIP: Record<string, string> = { review: "buy", sell: "sell", caution: "split" };
+// 판정 → 칩 색: 매수 검토=빨강, 매도 검토=파랑, 주의·실적일 확인 필요=주황, 나머지는 회색 (한국 화면과 같은 색 약속)
+const CHIP: Record<string, string> = { review: "buy", review_check: "split", sell: "sell", caution: "split" };
 const Verdict = ({ v }: { v: UsVerdict }) => <span className={`chip ${CHIP[v.code] ?? "wait"}`}>{v.label}</span>;
 const px2 = (n: number | null | undefined) => (n == null ? "-" : n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 
@@ -186,7 +186,7 @@ function Holdings({ jd, jdErr, onChanged, onToast }: { jd: UsJudgment | null; jd
   return (
     <section className="card">
       <h2 style={{ margin: "0 0 4px" }}>내 보유 종목 <small>(매도 검토)</small></h2>
-      <p className="us-note">직접 입력한 종목만 판단해요. 주문은 나가지 않고, 매수·매도는 직접 하세요. {jd?.note ?? ""}</p>
+      <p className="us-note">직접 입력한 종목만 판단해요. 주문은 나가지 않고, 매수·매도는 직접 하세요. 평가손익은 달러 기준이고 수수료·세금·환율·배당은 빠져 있어요. {jd?.note ?? ""}</p>
       <form className="us-form" onSubmit={submit}>
         <label>티커<input className="input sm" value={f.symbol} onChange={set("symbol")} placeholder="SOUN" maxLength={5} required /></label>
         <label>수량<input className="input sm" value={f.qty} onChange={set("qty")} placeholder="10" inputMode="decimal" required /></label>

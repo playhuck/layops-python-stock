@@ -112,7 +112,7 @@ def test_judgments_with_market_data_and_pending_symbol(offline):
     j = us_review.judgments()
     assert j["market"]["ok"] is True
     by = {s["symbol"]: s for s in j["stocks"]}
-    assert by["AAA"]["buy"]["verdict"]["code"] in {"review", "watch", "blocked"}
+    assert by["AAA"]["buy"]["verdict"]["code"] in {"review", "review_check", "watch", "blocked"}
     assert by["AAA"]["sell"]["pnl_pct"] == pytest.approx((by["AAA"]["sell"]["price"] / 90 - 1) * 100)
     assert by["BBB"]["buy"]["verdict"]["code"] == "na" and by["BBB"]["sell"] is None and by["BBB"]["position"] is None
 

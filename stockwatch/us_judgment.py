@@ -21,7 +21,8 @@ from . import volume_profile
 RULES_VERSION = 1
 ET = ZoneInfo("America/New_York")
 STOP_K, TARGET_K, TRAIL_K = 2.0, 3.5, 2.5      # ATR 배수: 손절(진입가 아래), 목표(진입가 위), 트레일링(고점 아래)
-MIN_ROWS = 65                                  # 60일선 계산에 필요한 최소 거래일. 120일선은 125일 이상일 때만 쓴다
+BUY_MIN_ROWS = 125                             # 매수 판단은 120일선까지 필요하다. 신규 상장처럼 모자라면 통과시키지 않고 판단을 보류한다
+SELL_MIN_ROWS = 40                             # 매도 판단은 20일선·ATR 만 쓰므로 신규 상장 보유 종목도 볼 수 있게 짧게 둔다
 EXT_MIN, EXT_MAX = -1.0, 1.5                   # 눌림 구간: 종가가 20일선보다 이만큼(ATR 단위) 아래~위
 RSI_BUY_MAX, RSI_SELL = 65, 70
 VIX_MAX, NASDAQ_MA = 25.0, 50                  # 시장 환경: VIX 가 이 값 미만 + 나스닥 종합이 50일선 위
@@ -30,7 +31,7 @@ NOTE = (f"규칙 v{RULES_VERSION} · 손절 −{STOP_K:g} ATR · 목표 +{TARGET
         "한국 전략의 값을 그대로 가져온 미검증 가설이라 참고용이에요. 주문 기능은 없고 투자 판단과 책임은 본인에게 있어요")
 
 VERDICTS = {
-    "review": "매수 검토", "watch": "관망", "blocked": "대기 (위험 구간)", "na": "판단 보류 (데이터 부족)",
+    "review": "매수 검토", "review_check": "매수 검토 · 실적일 확인 필요", "watch": "관망", "blocked": "대기 (위험 구간)", "na": "판단 보류 (데이터 부족)",
     "sell": "매도 검토", "caution": "주의", "hold": "보유 유지",
 }
 
@@ -60,23 +61,50 @@ def _unavailable(reason: str) -> dict:
             "note": NOTE, "rules_version": RULES_VERSION}
 
 
-def regime(vix_close: pd.Series | None, nasdaq: pd.DataFrame | None) -> dict:
-    """시장 환경: VIX < VIX_MAX 이고 나스닥 종합이 50일선 위. ok=None 이면 확인 불가(데이터 부족)."""
-    vix = _f(vix_close.dropna().iloc[-1]) if vix_close is not None and len(vix_close.dropna()) else None
-    above = None
-    if nasdaq is not None and len(nasdaq) >= NASDAQ_MA:
-        c = nasdaq["close"]
-        ma = _f(c.rolling(NASDAQ_MA).mean().iloc[-1])
-        above = None if ma is None else bool(c.iloc[-1] > ma)
-    parts = [("VIX", None if vix is None else vix < VIX_MAX), ("나스닥 50일선", above)]
-    ok = False if any(v is False for _, v in parts) else (None if any(v is None for _, v in parts) else True)
+def _day(idx) -> date | None:
+    try:
+        return pd.Timestamp(idx).date()
+    except (TypeError, ValueError):
+        return None
+
+
+def regime(vix_close: pd.Series | None, nasdaq: pd.DataFrame | None, today: date | None = None) -> dict:
+    """시장 환경: VIX < VIX_MAX 이고 나스닥 종합이 50일선 위. ok=None 이면 확인 불가.
+    두 값의 기준일이 같은 거래일이고 오늘로부터 STALE_DAYS 이내여야 한다 (한쪽만 오래된 값으로 정상 판정이 나는 것을 막는다)."""
+    today = today or datetime.now(ET).date()
+    v = vix_close.dropna() if vix_close is not None else None
+    vix = _f(v.iloc[-1]) if v is not None and len(v) else None
+    vix_day = _day(v.index[-1]) if vix is not None else None
+    above, n_day = None, None
+    if nasdaq is not None:
+        c = nasdaq["close"].dropna()
+        ma = _f(c.rolling(NASDAQ_MA).mean().iloc[-1]) if len(c) >= NASDAQ_MA else None
+        if ma is not None:
+            above, n_day = bool(c.iloc[-1] > ma), _day(c.index[-1])
+    out = {"ok": None, "vix": vix, "nasdaq_above_ma50": above, "vix_date": vix_day.isoformat() if vix_day else None,
+           "nasdaq_date": n_day.isoformat() if n_day else None, "as_of": None}
+    if vix_day and n_day and vix_day != n_day:
+        return {**out, "text": f"VIX 기준일({vix_day})과 나스닥 기준일({n_day})이 달라 확인할 수 없어요"}
+    days = [d for d in (vix_day, n_day) if d]
+    if any((today - d).days > STALE_DAYS for d in days):
+        return {**out, "text": f"시장 데이터가 오래됐어요 (마지막 {min(days)}, {STALE_DAYS}일 이내여야 해요)"}
+    parts = [None if vix is None else vix < VIX_MAX, above]
+    ok = False if any(x is False for x in parts) else (None if any(x is None for x in parts) else True)
+    as_of = max(days).isoformat() if days else None
     text = " · ".join([f"VIX {vix:.1f}" if vix is not None else "VIX 확인 불가",
                        "나스닥 종합 50일선 " + ("위" if above else "아래") if above is not None else "나스닥 50일선 확인 불가"])
-    return {"ok": ok, "vix": vix, "nasdaq_above_ma50": above, "text": text}
+    return {**out, "ok": ok, "as_of": as_of, "text": text + (f" · {as_of} 마감 기준" if as_of else "")}
 
 
-def _ret(c: pd.Series, n: int) -> float | None:
-    return float((c.iloc[-1] / c.iloc[-1 - n] - 1) * 100) if len(c) > n and c.iloc[-1 - n] else None
+def _rs20(close: pd.Series, bench_close: pd.Series) -> float | None:
+    """종목과 나스닥의 '공통 거래일' 기준 20일 수익률 차(%p). 같은 시작일·종료일로 비교한다.
+    나스닥에 종목의 마지막 날짜가 없거나 공통 거래일이 21개 미만이면 None (거래정지·누락으로 기간이 어긋나는 것을 막는다)."""
+    j = pd.concat([close.rename("s"), bench_close.rename("b")], axis=1, join="inner").dropna()
+    c = close.dropna()
+    if len(j) < 21 or not len(c) or c.index[-1] != j.index[-1]:
+        return None
+    r = (j.iloc[-1] / j.iloc[-21] - 1) * 100
+    return _f(r["s"] - r["b"])
 
 
 def _earnings(meta: dict, today: date) -> tuple[int | None, str]:
@@ -122,10 +150,10 @@ def _common_info(d: pd.DataFrame, meta: dict) -> list[dict]:
     return out
 
 
-def _prepare(df: pd.DataFrame | None):
+def _prepare(df: pd.DataFrame | None, min_rows: int):
     """(지표 포함 프레임, 종가, ATR) 또는 (None, None, 사유)."""
-    if df is None or len(df) < MIN_ROWS:
-        return None, None, f"시세 {0 if df is None else len(df)}일치뿐이라 판단할 수 없어요 (최소 {MIN_ROWS}일)"
+    if df is None or len(df) < min_rows:
+        return None, None, f"시세 {0 if df is None else len(df)}일치뿐이라 판단할 수 없어요 (최소 {min_rows}일)"
     d = ind.add_all(df)
     price, atr = _f(d["close"].iloc[-1]), _f(d["atr"].iloc[-1])
     if price is None or not atr or atr <= 0:
@@ -138,17 +166,18 @@ def buy_review(df: pd.DataFrame | None, meta: dict | None = None, mkt: dict | No
     """관심종목의 매수 검토. 조건 미충족이어도 근거를 모두 돌려준다. 판정: 매수 검토 / 관망 / 대기(위험 구간) / 판단 보류."""
     meta, mkt = meta or {}, mkt or {"ok": None, "text": "시장 환경 확인 불가"}
     today = today or datetime.now(ET).date()
-    d, price, atr = _prepare(df)
+    d, price, atr = _prepare(df, BUY_MIN_ROWS)
     if d is None:
-        return _unavailable(atr)
+        return _unavailable(atr + " — 120일선이 필요해요")
     last = d.iloc[-1]
     as_of = d.index[-1].date()
     core, risk, missing = [], [], []
 
     ma60, ma120, ma20 = _f(last.ma60), _f(last.ma120), _f(last.ma20)
-    long_ok = price > ma60 and (ma120 is None or price > ma120)
-    core.append(_chk("중장기 추세: 60일선(·120일선) 위", long_ok, f"종가 {price:,.2f} / 60일선 {ma60:,.2f}" + (f" / 120일선 {ma120:,.2f}" if ma120 else ""),
-                     "종가 > 60일선" + ("·120일선" if ma120 else " (120일선은 시세가 모자라 제외)")))
+    if ma120 is None:                                      # BUY_MIN_ROWS 로 막혀 있지만 값이 비정상이면 통과시키지 않는다
+        missing.append("120일선")
+    else:
+        core.append(_chk("중장기 추세: 60·120일선 위", price > ma60 and price > ma120, f"종가 {price:,.2f} / 60일선 {ma60:,.2f} / 120일선 {ma120:,.2f}", "종가 > 60일선 · 120일선"))
     slope = _f(ind.slope_pct(d["ma20"], 5))
     if slope is None:
         missing.append("20일선 방향")
@@ -164,15 +193,11 @@ def buy_review(df: pd.DataFrame | None, meta: dict | None = None, mkt: dict | No
         missing.append("RSI")
     else:
         core.append(_chk("RSI 과열 아님", rsi < RSI_BUY_MAX, f"{rsi:.0f}", f"< {RSI_BUY_MAX}"))
-    rs = None
-    if bench is not None and len(bench) > 20:
-        b = bench["close"].loc[:d.index[-1]].dropna()
-        r1, r2 = _ret(d["close"], 20), _ret(b, 20)
-        rs = None if r1 is None or r2 is None else r1 - r2
+    rs = _rs20(d["close"], bench["close"]) if bench is not None else None
     if rs is None:
         missing.append("나스닥 대비 상대강도")
     else:
-        core.append(_chk("나스닥보다 강함 (20일 상대강도)", rs >= 0, f"{rs:+.1f}%p", ">= 0%p"))
+        core.append(_chk("나스닥보다 강함 (공통 거래일 20일 상대강도)", rs >= 0, f"{rs:+.1f}%p", ">= 0%p"))
     if mkt.get("ok") is None:
         missing.append("시장 환경")
     else:
@@ -196,6 +221,8 @@ def buy_review(df: pd.DataFrame | None, meta: dict | None = None, mkt: dict | No
         verdict = _verdict("blocked", "실적·유동성·시세 중 위험 조건이 걸려 있어요")
     elif missing:
         verdict = _verdict("na", "확인하지 못한 항목: " + ", ".join(missing))
+    elif unmet == 0 and days is None:
+        verdict = _verdict("review_check", f"{etext} — 야후에 일정이 없거나 오래됐어요. 실적 갭 위험을 직접 확인하세요")
     elif unmet == 0:
         verdict = _verdict("review")
     else:
@@ -212,7 +239,7 @@ def sell_review(df: pd.DataFrame | None, position: dict, meta: dict | None = Non
     손절·트레일링·20일선 이탈·목표가 중 하나라도 해당하면 매도 검토, 과열·실적 임박·시장 악화는 주의."""
     meta, mkt = meta or {}, mkt or {"ok": None, "text": "시장 환경 확인 불가"}
     today = today or datetime.now(ET).date()
-    d, price, atr = _prepare(df)
+    d, price, atr = _prepare(df, SELL_MIN_ROWS)
     if d is None:
         return _unavailable(atr)
     qty, avg = float(position["qty"]), float(position["avg_price"])
@@ -259,15 +286,22 @@ def sell_review(df: pd.DataFrame | None, position: dict, meta: dict | None = Non
     pnl_pct, pnl_val = (price / avg - 1) * 100, (price - avg) * qty
     hit_hard = [e["label"] for e in hard if e["passed"]]
     hit_soft = [e["label"] for e in soft if e["passed"]]
+    stale = (today - as_of).days
+    stale_bad = stale > STALE_DAYS
+    warn_stale = f" · 시세가 {stale}일 전 기준이라 최신 가격이 아니에요" if stale_bad else ""
     if hit_hard:
-        verdict = _verdict("sell", "해당: " + ", ".join(hit_hard))
+        verdict = _verdict("sell", "해당: " + ", ".join(hit_hard) + warn_stale)
     elif hit_soft:
-        verdict = _verdict("caution", "해당: " + ", ".join(hit_soft))
+        verdict = _verdict("caution", "해당: " + ", ".join(hit_soft) + warn_stale)
+    elif stale_bad:                                         # 오래된 가격으로는 '보유 유지'를 말하지 않는다
+        verdict = _verdict("na", f"시세가 {stale}일 전 기준이라 보유 유지 여부를 판단할 수 없어요")
     else:
         verdict = _verdict("hold", "확인하지 못한 항목: " + ", ".join(miss) if miss else None)
     sign = "-" if pnl_val < 0 else "+"
-    head = _info("보유", f"{qty:g}주 @ {avg:,.2f} (평가손익 {pnl_pct:+.1f}% · {sign}${abs(pnl_val):,.0f})", "아래에서 주황 ! 표시가 현재 해당하는 조건이에요")
-    ev = [head] + hard + soft + earn_info + [_info(f"참고 {m}", "확인 불가", "이 항목을 못 구했어요") for m in miss] + _common_info(d, meta)
+    head = _info("보유", f"{qty:g}주 @ {avg:,.2f} (평가손익 {pnl_pct:+.1f}% · {sign}${abs(pnl_val):,.0f})",
+                 "평가손익은 달러 기준이고 수수료·세금·환율·배당은 제외예요. 아래에서 주황 ! 표시가 현재 해당하는 조건이에요")
+    fresh = _info("시세 최신성", f"마지막 완성 봉 {as_of} ({stale}일 전)", f"{STALE_DAYS}일 이내" + (" · 넘으면 보유 유지를 표시하지 않아요" if not stale_bad else " · 지금은 오래된 시세예요"))
+    ev = [head, fresh] + hard + soft + earn_info + [_info(f"참고 {m}", "확인 불가", "이 항목을 못 구했어요") for m in miss] + _common_info(d, meta)
     levels = {"stop": stop, "trail": trail, "target": target, "ma20": ma20, "atr": atr, "ref": price}
     return {"verdict": verdict, "evidence": ev, "levels": levels, "price": price, "as_of": as_of.isoformat(), "unmet": len(hit_hard) + len(hit_soft),
             "pnl_pct": pnl_pct, "pnl_value": pnl_val, "value": price * qty, "note": NOTE, "rules_version": RULES_VERSION}
