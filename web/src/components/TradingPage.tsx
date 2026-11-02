@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { decide, dismissUnreconciled, fetchCandidates, fetchTrading, pushTest, resetKill, resolveProposal, saveRule, setLive, syncOrders } from "../api";
 import { avatarColor, signed, won } from "../format";
 import { enablePush, listenForeground } from "../push";
-import type { Candidate, Proposal, Rule, ScreenItem, TradingState } from "../types";
+import { isCheck, type Candidate, type Proposal, type Rule, type ScreenItem, type TradingState } from "../types";
 import Evidence from "./Evidence";
 
 const STATUS: Record<string, string> = {
@@ -153,7 +153,7 @@ export default function TradingPage({ onChanged }: { onChanged: () => void }) {
               if (typeof v === "string") return <p key={code} className="notice">{v}</p>;
               const it = v as ScreenItem, blk = it.buy ?? it.sell;
               if (!blk) return <p key={code} className="notice">{code}: {it.error}</p>;
-              const bad = blk.evidence.filter((c) => !c.passed).length;
+              const bad = blk.evidence.filter((c) => isCheck(c) && !c.passed).length;
               return (
                 <details key={code} className="card">
                   <summary>{it.name} <small>{it.buy ? "매수" : "매도"} 검토</small> <span className={`chip ${blk.passed ? "buy" : "wait"}`} style={{ float: "right" }}>{blk.passed ? "조건 충족" : `${bad}개 미충족`}</span></summary>

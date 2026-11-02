@@ -36,7 +36,7 @@ def build(trading=None, codes=(A, B), groups=None, live=True):
 def pending(store): return {p["code"]: p for p in store.proposals("pending")}
 
 
-def failing(screen, code): return [c["label"] for c in screen[code]["buy"]["evidence"] if not c["passed"]]
+def failing(screen, code): return [c["label"] for c in screen[code]["buy"]["evidence"] if c.get("kind") != "info" and not c["passed"]]
 
 
 def test_max_positions_limits_simultaneous_proposals_and_picks_highest_priority(env):

@@ -88,7 +88,7 @@ def make(env, prov=None, rule=None, live=False):
 
 def first_buy(e):
     scr = e.generate()
-    assert scr[CODE]["buy"]["passed"], [c for c in scr[CODE]["buy"]["evidence"] if not c["passed"]]
+    assert scr[CODE]["buy"]["passed"], [c for c in scr[CODE]["buy"]["evidence"] if eng.is_check(c) and not c["passed"]]
     return scr[CODE]["buy"]["proposal_id"]
 
 
@@ -97,7 +97,8 @@ def test_buy_proposal_created_with_quantitative_evidence(env):
     pid = first_buy(e)
     p = store.proposal(pid)
     assert p["qty"] >= 1 and p["stop"] < p["price"] < p["target"] and p["dry_run"] == 1
-    assert all({"label", "passed", "value"} <= set(c) for c in p["evidence"]) and len(p["evidence"]) >= 10
+    checks = [c for c in p["evidence"] if c.get("kind") != "info"]               # 참고 정보(kind=info)는 통과 여부가 없다
+    assert all({"label", "passed", "value"} <= set(c) for c in checks) and len(checks) >= 10
 
 
 def test_market_regime_blocks_buy(env):
@@ -281,3 +282,54 @@ def test_vix_evidence_shows_reference_date_when_provider_knows_it(env):
     assert ev["VIX 안정"]["value"] == "15.0 (10/28 마감)" and ev["VIX 안정"]["passed"]
     e2, _, _ = make(env)                                                        # vix_date 가 없는 공급자(CSV/가짜)도 그대로 동작
     assert {c["label"]: c for c in e2.generate()[CODE]["buy"]["evidence"]}["VIX 안정"]["value"] == "15.0"
+
+
+# -- 매물대 참고 정보(3A): 표시만 하고 판단·개수에는 쓰지 않는다 ---------------------------------------
+def test_profile_info_is_neutral_and_never_changes_the_decision(env, monkeypatch):
+    e, store, _ = make(env)
+    ev = e.generate()[CODE]["buy"]["evidence"]
+    info = [c for c in ev if c.get("kind") == "info"]
+    assert len(info) == 1 and info[0]["label"] == "위 주요 추정 매물대" and "passed" not in info[0]
+    assert "판단 차단 없음" in info[0]["threshold"] and "예측력" in info[0]["threshold"]
+    assert info[0]["data"]["method_version"] == 1 and info[0]["data"]["last_date"] == "2026-10-28"
+    # 같은 입력에서 정보 항목을 계산 불가/오류로 바꿔도 제안 여부·일반 조건 개수는 같다
+    base_checks = [(c["label"], c["passed"]) for c in ev if c.get("kind") != "info"]
+    monkeypatch.setattr(eng.volume_profile, "compute", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    e2, _, _ = make(env)
+    scr = e2.generate()[CODE]["buy"]
+    assert scr["passed"] and [(c["label"], c["passed"]) for c in scr["evidence"] if c.get("kind") != "info"] == base_checks
+    assert [c for c in scr["evidence"] if c.get("kind") == "info"][0]["value"].startswith("계산 오류")
+
+
+def test_profile_info_unavailable_reason_and_counts_exclude_info(env):
+    short = FakeProvider().df.iloc[-20:]                                         # 거래일 부족 → 계산 불가, 기존 판단은 그대로
+    e, store, _ = make(env, prov=FakeProvider(df=short))
+    scr = e.generate()[CODE]["buy"]
+    info = [c for c in scr["evidence"] if c.get("kind") == "info"][0]
+    assert info["value"].startswith("계산 불가") and "거래일 부족" in info["value"]
+    assert eng.tally(scr["evidence"]) == (sum(1 for c in scr["evidence"] if c.get("kind") != "info" and c["passed"]), sum(1 for c in scr["evidence"] if c.get("kind") != "info"))
+
+
+def test_notification_counts_ignore_info_items(env):
+    sent = []
+    e, store, _ = make(env)
+    e.notify = lambda t, b: sent.append((t, b))
+    pid = first_buy(e)
+    ev = store.proposal(pid)["evidence"]
+    ok, total = eng.tally(ev)
+    assert total == len(ev) - 1 and ok == total                                   # 조건 충족 제안: 정보 1건을 뺀 모든 조건이 통과
+    assert f"근거 {ok}/{total} 충족" in sent[0][1]
+
+
+def test_old_stored_evidence_without_kind_counts_as_checks():
+    old = [{"label": "a", "passed": True, "value": "1", "threshold": ""}, {"label": "b", "passed": False, "value": "2", "threshold": ""}]
+    assert eng.tally(old) == (1, 2) and eng.is_check(old[0])
+
+
+def test_profile_info_failure_while_building_text_does_not_break_the_review(env, monkeypatch):
+    real = eng.volume_profile.compute
+    monkeypatch.setattr(eng.volume_profile, "compute", lambda *a, **k: {**real(*a, **k), "up": {"lo": "x"}})      # 반환 구조가 어긋나 문장 조립에서 예외
+    e, store, _ = make(env)
+    scr = e.generate()[CODE]["buy"]
+    assert scr["passed"] and scr["proposal_id"]
+    assert [c for c in scr["evidence"] if c.get("kind") == "info"][0]["value"].startswith("계산 오류")

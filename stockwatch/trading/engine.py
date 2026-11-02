@@ -13,7 +13,7 @@ from datetime import date, datetime, timedelta
 
 import pandas as pd
 
-from .. import config, indicators as ind, sectors
+from .. import config, indicators as ind, sectors, volume_profile
 from ..envfile import env
 from ..signals import analyze
 from . import risk
@@ -28,6 +28,21 @@ STALE_APPROVING_SEC = 60  # 승인 처리 중 상태로 이보다 오래 남아 
 
 def chk(label: str, passed: bool, value: str, threshold: str = "") -> dict:
     return {"label": label, "passed": bool(passed), "value": value, "threshold": threshold}
+
+
+def info(label: str, value: str, threshold: str = "", data: dict | None = None) -> dict:
+    """통과 여부가 없는 참고 정보. passed 필드 자체가 없어 제안 여부·충족 개수 어디에도 섞이지 않는다 (kind 가 없는 옛 항목은 chk 로 본다)."""
+    return {"label": label, "kind": "info", "value": value, "threshold": threshold, **({"data": data} if data else {})}
+
+
+def is_check(e: dict) -> bool:
+    return e.get("kind") != "info"
+
+
+def tally(ev: list[dict]) -> tuple[int, int]:
+    """(통과한 조건 수, 조건 수). 참고 정보는 세지 않는다."""
+    checks = [e for e in ev if is_check(e)]
+    return sum(1 for e in checks if e["passed"]), len(checks)
 
 
 class Gateway:
@@ -212,7 +227,7 @@ class Engine:
             out["sell"] = self._sell_checks(code, name, res, d, held, ref, atr)
         else:  # 매수 후보: 개별 조건만 먼저 계산해 두고, 포트폴리오 한도는 _assign_buys 에서 우선순위대로 배정하며 검사한다
             out["_ctx"] = {"item": item, "res": res, "d": d, "ref": ref, "atr": atr, "rule": self.store.rule(code),
-                           "base": self._buy_base(item, res, d, ref, atr, vix)}
+                           "base": self._buy_base(item, res, d, ref, atr, vix), "profile": self._profile_info(code, df)}
         return out
 
     # -- 매수 ① 종목 개별 조건 (포트폴리오와 무관) ------------------------------------------------
@@ -243,6 +258,40 @@ class Engine:
         rej = self.store.rejected_today(code, "BUY")
         ev.append(chk("오늘 거절한 제안 아님", not rej, "거절함" if rej else "해당 없음", "같은 날 재제안 안 함"))
         return ev
+
+    def _profile_info(self, code: str, df: pd.DataFrame) -> dict:
+        """승인 화면에 보여주는 '위 주요 추정 매물대' 참고 정보. 연구에서 예측력이 확인되지 않았으므로 판단에는 쓰지 않는다.
+        계산·문장 조립 어디에서 예외가 나도 정보 줄만 '계산 오류'가 되고, 종목 검토와 제안은 그대로 진행한다."""
+        try:
+            return self._build_profile_info(code, df)
+        except Exception as e:
+            return info("위 주요 추정 매물대", f"계산 오류 — {type(e).__name__}: {str(e)[:100]}", "판단 차단 없음 · 참고 정보")
+
+    def _build_profile_info(self, code: str, df: pd.DataFrame) -> dict:
+        label = "위 주요 추정 매물대"
+        stop_k, target_k, _ = self._levels(code)
+        note = f"명목 목표 +{target_k:g} ATR · 손절 −{stop_k:g} ATR · 판단 차단 없음 · 일봉 범위 기반 추정치, 향후 수익 예측력은 현재 표본에서 확인되지 않음"
+        try:
+            p = volume_profile.compute(volume_profile.complete_kr_bars(df))
+        except Exception as e:                                                      # 계산 실패는 기존 판단을 바꾸지 않는다
+            return info(label, f"계산 오류 — {str(e)[:120]}", note)
+        meta = p["meta"]
+        if not p["ok"]:
+            return info(label, f"계산 불가 — {p['reason']}", note, {"method_version": meta["method_version"]})
+        dist = lambda pct, atr: f"{pct:+.1f}%" + (f"({atr:+.1f} ATR)" if atr is not None else "")
+        parts = []
+        if p["inside"]:
+            parts.append(f"현재가가 두꺼운 매물대 {p['inside']['lo']:,.0f}~{p['inside']['hi']:,.0f} 안")
+        up = p["up"]
+        if up:
+            parts.append(f"위 {up['lo']:,.0f}~{up['hi']:,.0f} · 진입 {dist(up['enter_pct'], up['enter_atr'])} · 돌파 {dist(up['break_pct'], up['break_atr'])}")
+        elif not p["inside"]:
+            parts.append("위쪽 두꺼운 영역 없음")
+        z = lambda r: r and {k: r[k] for k in ("lo", "hi", "enter_pct", "enter_atr", "break_pct", "break_atr") if k in r}
+        data = {"method_version": meta["method_version"], "window": meta["window"], "bins": meta["bins"], "thickness_multiple": meta["thickness_multiple"],
+                "allocation": meta["allocation"], "last_date": meta["last_date"], "bars_used": meta["bars_used"], "price": p["price"], "atr": p["atr"],
+                "inside": bool(p["inside"]), "up": z(up), "down": z(p["down"])}
+        return info(label, " / ".join(parts), f"{note} ({meta['last_date']} 종가 기준, 계산법 v{meta['method_version']})", data)
 
     # -- 매수 ② 포트폴리오 한도 (생성 단계와 승인 단계가 같은 함수를 쓴다) --------------------------
     def _portfolio_checks(self, code: str, new_val: float, state: PortfolioState, cap: float, cls: dict) -> list[dict]:
@@ -302,7 +351,8 @@ class Engine:
             if sz.qty >= 1:
                 ev.append(chk("손절 시 예상 손실", sz.max_loss <= cap * t.get("risk_per_trade_pct", 1.0) / 100 * 1.001,
                               f"{sz.max_loss:,}원 (자본의 {sz.max_loss / cap * 100:.2f}%)", f"<= {t.get('risk_per_trade_pct', 1.0)}%"))
-            passed = all(e["passed"] for e in ev)
+            ev.append(c["profile"])                      # 참고 정보: passed 가 없어 아래 판정에서 제외된다
+            passed = all(e["passed"] for e in ev if is_check(e))
             o["buy"] = {"passed": passed, "evidence": ev, "proposal_id": None}
             if passed:
                 state.add_virtual(code, sz.amount)
@@ -321,8 +371,8 @@ class Engine:
         ids = self.store.replace_pending("BUY", [i["code"] for i in self.cfg["watchlist"]], items)
         for it, o, pid in zip(items, outs, ids):
             o["buy"]["proposal_id"] = pid
-            ok = sum(1 for e in it["evidence"] if e["passed"])
-            self.notify(f"매수 제안: {it['name']}", f"승인 대기 중 · 근거 {ok}/{len(it['evidence'])} 충족{' · 모의' if it['dry_run'] else ''}")
+            ok, total = tally(it["evidence"])
+            self.notify(f"매수 제안: {it['name']}", f"승인 대기 중 · 근거 {ok}/{total} 충족{' · 모의' if it['dry_run'] else ''}")
 
     # -- 매도: 하나라도 걸리면 (과감) ------------------------------------------------------------
     def _sell_checks(self, code, name, res, d, held, ref, atr) -> dict:
@@ -376,9 +426,9 @@ class Engine:
         live = self.store.get("live_enabled", "0") == "1" and bool(rule["live"])
         pid = self.store.add_proposal(code=code, name=name, side=side, qty=qty, price=price, stop=stop, target=target,
                                       evidence=ev, sizing=sizing, dry_run=not live)
-        ok = sum(1 for c in ev if c["passed"])
+        ok, total = tally(ev)
         self.notify(f"{'매수' if side == 'BUY' else '매도'} 제안: {name}",
-                    f"승인 대기 중 · 근거 {ok}/{len(ev)} 충족{' · 모의' if not live else ''}")
+                    f"승인 대기 중 · 근거 {ok}/{total} 충족{' · 모의' if not live else ''}")
         return pid
 
     def removal_blockers(self, code: str) -> list[str]:

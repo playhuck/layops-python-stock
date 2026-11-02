@@ -20,7 +20,9 @@ export type Market = Record<string, Record<string, number>>;
 export interface Dashboard { results: Result[]; waiting: Waiting[]; market: Market; status: Status }
 export type Row = Record<string, number | string | null>;
 
-export interface Check { label: string; passed: boolean; value: string; threshold?: string }
+// kind 가 없으면 일반 조건(통과/미통과). kind="info" 는 통과 여부가 없는 참고 정보라 개수·판정에 쓰지 않는다
+export interface Check { label: string; passed?: boolean; kind?: "check" | "info"; value: string; threshold?: string; data?: Record<string, unknown> }
+export const isCheck = (c: Check) => c.kind !== "info";
 export interface Proposal {
   id: number; created_at: string; decided_at: string | null; code: string; name: string; side: "BUY" | "SELL";
   status: string; qty: number; price: number; stop: number | null; target: number | null;
