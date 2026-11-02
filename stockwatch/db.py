@@ -71,6 +71,10 @@ CREATE TABLE IF NOT EXISTS us_positions(
 ALTER TABLE us_positions ADD COLUMN IF NOT EXISTS entry_atr DOUBLE PRECISION CHECK (entry_atr > 0);
 ALTER TABLE us_positions ADD COLUMN IF NOT EXISTS entry_atr_source TEXT;
 ALTER TABLE us_positions ADD COLUMN IF NOT EXISTS tracked_from DATE;
+-- 한국 보유 종목(사용자가 직접 입력). 화면 표시 전용이고 거래 엔진(토스 보유 기준)과 무관하다. 한국은 정수 주만
+CREATE TABLE IF NOT EXISTS kr_positions(
+  code TEXT PRIMARY KEY, qty INTEGER NOT NULL CHECK (qty > 0), avg_price DOUBLE PRECISION NOT NULL CHECK (avg_price > 0),
+  opened_on DATE, note TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
 """
 
 

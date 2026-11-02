@@ -104,3 +104,13 @@ export interface UsJudgment {
   stocks: UsJudgmentStock[]; note: string; rules_version: number;
 }
 export interface UsPositionInput { qty: number; avg_price: number; opened_on: string | null; note: string; entry_atr?: number | null; name?: string }
+
+// 보유 정보: 출처를 하나만 골라 보여준다 (직접 입력 / 토스에서 가져와서 반영). 서버가 선택한 출처의 것만 내려준다
+export type HoldingsSource = "manual" | "import";
+export interface HoldingItem { qty: number; avg: number; last?: number; opened_on?: string | null; note?: string }
+export interface HoldingsView {
+  source: HoldingsSource;
+  kr: { configured: boolean; known: boolean; items: Record<string, HoldingItem> };    // known=false 는 '모름'(가져오기 실패·미연결): 미보유와 다르다
+  us: { supported: boolean; items: Record<string, HoldingItem> };
+}
+export interface KrPositionInput { qty: number; avg_price: number; opened_on: string | null; note: string }

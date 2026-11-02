@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type MouseEvent } from "react";
-import { fetchDashboard, fetchStatus, fetchTrading, startRefresh } from "./api";
+import { fetchDashboard, fetchHoldings, fetchStatus, fetchTrading, setHoldingsSource, startRefresh } from "./api";
 import { tabHref, useRoute, type Tab } from "./router";
-import type { Dashboard } from "./types";
+import type { Dashboard, HoldingsSource, HoldingsView } from "./types";
 import AddSheet from "./components/AddSheet";
 import HomePage from "./components/HomePage";
 import MarketPage from "./components/MarketPage";
@@ -21,12 +21,16 @@ export default function App() {
   const [adding, setAdding] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [pending, setPending] = useState(0);
+  const [holdings, setHoldings] = useState<HoldingsView | null>(null);
 
   const show = useCallback((m: string) => { setToast(m); setTimeout(() => setToast(null), 3200); }, []);
+  const loadHoldings = useCallback(() => { fetchHoldings().then(setHoldings).catch(() => setHoldings(null)); }, []);
+  const changeSource = useCallback((s: HoldingsSource) => { setHoldingsSource(s).then(loadHoldings).catch((e) => show((e as Error).message)); }, [loadHoldings, show]);
   const load = useCallback(() => {
+    loadHoldings();
     fetchDashboard().then((d) => { setData(d); setError(null); }).catch((e) => setError(String(e)));
     fetchTrading().then((t) => setPending(t.pending.length)).catch(() => undefined);
-  }, []);
+  }, [loadHoldings]);
   useEffect(load, [load]);
   const stockName = data?.results.find((r) => r.code === route.code)?.name;
   useEffect(() => { document.title = `${stockName ?? TABS.find(([k]) => k === route.tab)![1]} · Stockwatch`; }, [route.tab, stockName]);
@@ -71,16 +75,16 @@ export default function App() {
 
       <div className="app">
         {tab === "home" && sel ? (
-          <StockPage r={sel} onBack={back} onToast={show} onRemoved={() => { navigate({ tab: "home", code: null }, true); load(); }} />
+          <StockPage r={sel} holdings={holdings} onSource={changeSource} onHoldings={loadHoldings} onBack={back} onToast={show} onRemoved={() => { navigate({ tab: "home", code: null }, true); load(); }} />
         ) : (
           <>
             <header className="top mob-head"><div><h1>{title}</h1><span className="sub">{statusText}</span></div>{RefreshBtn}</header>
             <div className="page-h"><h1>{title}</h1></div>
             {failed.map((s) => <p key={s.name} className="notice">⚠ {s.name}: {s.error}</p>)}
-            {tab === "home" && <HomePage data={data} onOpen={openStock} onAdd={() => setAdding(true)} />}
+            {tab === "home" && <HomePage data={data} holdings={holdings} onSource={changeSource} onOpen={openStock} onAdd={() => setAdding(true)} />}
             {tab === "sector" && <SectorsPage onOpen={openStock} />}
             {tab === "market" && <MarketPage />}
-            {tab === "us" && <UsPage onToast={show} />}
+            {tab === "us" && <UsPage onToast={show} holdings={holdings} onSource={changeSource} onHoldings={loadHoldings} />}
             {tab === "trade" && <TradingPage onChanged={load} />}
             {tab === "settings" && <SettingsPage onChanged={load} />}
           </>

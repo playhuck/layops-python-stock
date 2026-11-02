@@ -1,9 +1,10 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { addUsStock, deleteUsPosition, fetchUsDiscover, fetchUsJudgment, fetchUsOverview, fetchUsProfile, fetchUsSeries, fetchUsStocks, putUsPosition, refreshUs, removeUsStock } from "../api";
 import { num, pct, usd } from "../format";
-import type { UsDiscoverHit, UsJudgment, UsJudgmentStock, UsOverview, UsReview, UsStock, UsStocks, UsVerdict } from "../types";
+import type { HoldingsSource, HoldingsView, UsDiscoverHit, UsJudgment, UsJudgmentStock, UsOverview, UsReview, UsStock, UsStocks, UsVerdict } from "../types";
 import ChartCard from "./ChartCard";
 import Evidence from "./Evidence";
+import { SourceToggle } from "./Holdings";
 import UsStrip from "./UsStrip";
 
 const cls = (v: number | null | undefined) => (v == null ? "" : v >= 0 ? "pos" : "neg");
@@ -14,7 +15,7 @@ const CHIP: Record<string, string> = { review: "buy", review_check: "split", sel
 const Verdict = ({ v }: { v: UsVerdict }) => <span className={`chip ${CHIP[v.code] ?? "wait"}`}>{v.label}</span>;
 const px2 = (n: number | null | undefined) => (n == null ? "-" : n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 
-export default function UsPage({ onToast }: { onToast: (m: string) => void }) {
+export default function UsPage({ onToast, holdings, onSource, onHoldings }: { onToast: (m: string) => void; holdings: HoldingsView | null; onSource: (s: HoldingsSource) => void; onHoldings: () => void }) {
   const [ov, setOv] = useState<UsOverview | null>(null);
   const [st, setSt] = useState<UsStocks | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -42,6 +43,9 @@ export default function UsPage({ onToast }: { onToast: (m: string) => void }) {
   const failed = st.status.steps.filter((s) => !s.ok);
   const sel = st.stocks.find((s) => s.symbol === open);
   const jmap = new Map((jd?.stocks ?? []).map((j) => [j.symbol, j]));
+  const source = holdings?.source ?? "manual";
+  const mineOn = source === "manual";                 // 직접 입력 모드에서만 내 보유를 보여준다 (가져오기 모드와 섞이지 않게)
+  const mineOf = (symbol: string) => (mineOn ? jmap.get(symbol) : undefined);
   const refresh = async () => { const r = await refreshUs(); onToast(r.started ? "미국 데이터를 갱신하고 있어요" : "이미 갱신 중이에요"); load(); };
   const remove = async (s: UsStock) => {
     try { await removeUsStock(s.symbol); setOpen(null); load(); onToast(`${s.symbol}을(를) 뺐어요`); } catch (e) { onToast((e as Error).message); }
@@ -57,7 +61,7 @@ export default function UsPage({ onToast }: { onToast: (m: string) => void }) {
       {failed.length > 3 && <p className="notice">⚠ 그 밖에 {failed.length - 3}건 실패</p>}
 
       <UsStrip data={ov} full />
-      <Holdings jd={jd} jdErr={jdErr} onChanged={load} onToast={onToast} />
+      <Holdings jd={jd} jdErr={jdErr} source={source} onSource={onSource} onChanged={() => { load(); onHoldings(); }} onToast={onToast} />
       {finding && <Discover onAdded={(sym) => { onToast(`${sym}을(를) 추가했어요`); load(); }} />}
 
       <section className="card">
@@ -72,7 +76,7 @@ export default function UsPage({ onToast }: { onToast: (m: string) => void }) {
                 {st.stocks.map((s) => (
                   <Fragment key={s.symbol}>
                     <tr onClick={() => setOpen(open === s.symbol ? null : s.symbol)} style={{ cursor: "pointer" }} className={open === s.symbol ? "sel" : undefined}>
-                      <td><b>{s.symbol}</b> <small className="muted">{s.name}</small></td>
+                      <td><b>{s.symbol}</b> <small className="muted">{s.name}</small>{mineOf(s.symbol)?.position && <span className="chip held">보유</span>}</td>
                       {s.pending ? <td colSpan={15} className="muted" style={{ textAlign: "left" }}>시세를 아직 받지 못했어요. "미국 갱신"을 눌러 보세요</td> : <>
                         <td>{jmap.get(s.symbol) ? <Verdict v={jmap.get(s.symbol)!.buy.verdict} /> : <span className="muted">-</span>}</td>
                         <td>{num(s.close, 2)}</td><td className={cls(s.chg_1d)}>{pct(s.chg_1d)}</td><td className={cls(s.chg_5d)}>{pct(s.chg_5d)}</td>
@@ -91,8 +95,8 @@ export default function UsPage({ onToast }: { onToast: (m: string) => void }) {
         {sel && (      // 표가 가로로 길어 행 안에 펼치면 차트가 잘려서, 선택한 종목의 상세는 표 아래에 둔다
           <div style={{ marginTop: 14, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
             <h3 style={{ margin: "0 0 4px" }}>{sel.symbol} <small className="muted">{sel.name}</small></h3>
-            <Detail s={sel} review={jmap.get(sel.symbol)?.buy} onRemove={() => remove(sel)} />
-            {!sel.pending && <ChartCard code={sel.symbol} source={fetchUsSeries} profile={fetchUsProfile} />}
+            <Detail s={sel} review={jmap.get(sel.symbol)?.buy} mine={mineOf(sel.symbol)} onRemove={() => remove(sel)} />
+            {!sel.pending && <ChartCard code={sel.symbol} source={fetchUsSeries} profile={fetchUsProfile} mine={mineOf(sel.symbol)?.position ? { avg: mineOf(sel.symbol)!.position!.avg_price } : undefined} />}
           </div>
         )}
         <small>표의 수치는 사실값이고, "판단"은 검증 전 규칙으로 계산한 참고용이에요(주문은 없어요). 등락 색은 한국 화면과 같게 빨강=상승, 파랑=하락이에요. 종가는 완성된 마지막 거래일 기준(달러)이고, 실적일·공매도·시총은 야후 정보라 틀릴 수 있어요.</small>
@@ -101,7 +105,7 @@ export default function UsPage({ onToast }: { onToast: (m: string) => void }) {
   );
 }
 
-function Detail({ s, review, onRemove }: { s: UsStock; review?: UsReview; onRemove: () => void }) {
+function Detail({ s, review, mine, onRemove }: { s: UsStock; review?: UsReview; mine?: UsJudgmentStock; onRemove: () => void }) {
   return (
     <div style={{ padding: "6px 0 10px" }}>
       <div className="toolbar" style={{ marginBottom: 6 }}>
@@ -109,6 +113,12 @@ function Detail({ s, review, onRemove }: { s: UsStock; review?: UsReview; onRemo
         <button className="add" onClick={onRemove}>목록에서 빼기</button>
       </div>
       {s.flags.map((f) => <p key={f} className="notice" style={{ margin: "0 0 6px" }}>⚠ {f}</p>)}
+      {mine?.position && mine.sell && (
+        <p className="prof-sum" style={{ margin: "0 0 8px" }}>
+          <span className="chip held" style={{ marginLeft: 0 }}>내 보유</span> {mine.position.qty}주 @ {px2(mine.position.avg_price)} · 현재 {px2(mine.sell.price)} · <b className={cls(mine.sell.pnl_pct)}>{pct(mine.sell.pnl_pct)}</b>
+          {" "}<span className="muted">· {mine.sell.verdict.label}{mine.sell.pnl_pct != null && ` · 평단보다 ${mine.sell.pnl_pct >= 0 ? "위" : "아래"} (차트의 주황 점선)`}</span>
+        </p>
+      )}
       {review && (
         <div style={{ margin: "6px 0 10px" }}>
           <div><Verdict v={review.verdict} /> <small className="muted">{review.verdict.reason ?? ""} {review.as_of ? `· ${review.as_of} 종가 기준` : ""}</small></div>
@@ -163,7 +173,7 @@ const EMPTY = { symbol: "", qty: "", avg: "", date: "", note: "", atr: "" };
 const ATR_SRC = { opened: "매수일 직전 종가 기준", registered: "등록 시점 기준", manual: "직접 입력" };
 
 /** 직접 입력한 보유 종목과 매도 검토. 주문은 없고, 저장한 값은 판단의 입력으로만 쓰인다 */
-function Holdings({ jd, jdErr, onChanged, onToast }: { jd: UsJudgment | null; jdErr: boolean; onChanged: () => void; onToast: (m: string) => void }) {
+function Holdings({ jd, jdErr, source, onSource, onChanged, onToast }: { jd: UsJudgment | null; jdErr: boolean; source: HoldingsSource; onSource: (s: HoldingsSource) => void; onChanged: () => void; onToast: (m: string) => void }) {
   const [f, setF] = useState(EMPTY);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
@@ -187,7 +197,8 @@ function Holdings({ jd, jdErr, onChanged, onToast }: { jd: UsJudgment | null; jd
   };
   return (
     <section className="card">
-      <h2 style={{ margin: "0 0 4px" }}>내 보유 종목 <small>(매도 검토)</small></h2>
+      <div className="toolbar"><h2 style={{ margin: "0 0 4px" }}>내 보유 종목 <small>(매도 검토)</small></h2><SourceToggle source={source} onChange={onSource} /></div>
+      {source === "import" ? <p className="empty">미국 종목은 토스에서 가져오기를 지원하지 않아요. 직접 입력한 보유를 보려면 위에서 "직접 입력"을 선택하세요.</p> : <>
       <p className="us-note">직접 입력한 종목만 판단해요. 주문은 나가지 않고, 매수·매도는 직접 하세요. 평가손익은 달러 기준이고 수수료·세금·환율·배당은 빠져 있어요. 액면분할·역분할이 있으면 수량과 평균 매수가를 직접 고쳐 주세요. {jd?.note ?? ""}</p>
       <form className="us-form" onSubmit={submit}>
         <label>티커<input className="input sm" value={f.symbol} onChange={set("symbol")} placeholder="SOUN" maxLength={5} required /></label>
@@ -225,6 +236,7 @@ function Holdings({ jd, jdErr, onChanged, onToast }: { jd: UsJudgment | null; jd
           </div>
         );
       })}
+      </>}
     </section>
   );
 }

@@ -57,11 +57,15 @@ export const resolveProposal = (id: number, resolution: "adopt" | "not_sent" | "
 export const fetchCandidates = (id: number) => get<import("./types").Candidate[]>(`/api/trading/proposals/${id}/candidates`);
 export const dismissUnreconciled = (code: string) => send<{ ok: boolean }>("POST", `/api/trading/unreconciled/${code}/dismiss`);
 
-import type { UsDiscoverHit, UsJudgment, UsOverview, UsPosition, UsPositionInput, UsStocks } from "./types";
+import type { HoldingsSource, HoldingsView, KrPositionInput, UsDiscoverHit, UsJudgment, UsOverview, UsPosition, UsPositionInput, UsStocks } from "./types";
 export const fetchUsOverview = () => get<UsOverview>("/api/us/overview");
 export const fetchUsStocks = () => get<UsStocks>("/api/us/stocks");
 export const fetchUsSeries = (symbol: string) => get<Row[]>(`/api/us/series/${encodeURIComponent(symbol)}`);
 export const fetchUsProfile = (symbol: string, window: number) => get<VolumeProfile>(`/api/us/profile/${encodeURIComponent(symbol)}?window=${window}`);
+export const fetchHoldings = () => get<HoldingsView>("/api/holdings");
+export const setHoldingsSource = (source: HoldingsSource) => send<{ source: HoldingsSource }>("PUT", "/api/holdings/source", { source });
+export const putKrPosition = (code: string, body: KrPositionInput) => send("PUT", `/api/kr/positions/${encodeURIComponent(code)}`, body);
+export const deleteKrPosition = (code: string) => send("DELETE", `/api/kr/positions/${encodeURIComponent(code)}`);
 export const fetchUsJudgment = () => get<UsJudgment>("/api/us/judgment");
 export const putUsPosition = (symbol: string, body: UsPositionInput) => send<UsPosition>("PUT", `/api/us/positions/${encodeURIComponent(symbol)}`, body);
 export const deleteUsPosition = (symbol: string) => send("DELETE", `/api/us/positions/${encodeURIComponent(symbol)}`);

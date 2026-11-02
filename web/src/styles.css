@@ -260,3 +260,8 @@ select.input{appearance:auto;padding:12px 14px;font-size:14px}
 .us-hold .btns{margin-left:auto;display:flex;gap:6px}
 .us-reason{margin:6px 0 0;font-size:12.5px;color:var(--sub)}
 .us-levels{margin:8px 0 0;font-size:12.5px;line-height:1.55}
+.chip.held{background:var(--primary-soft);color:var(--primary);font-weight:700;margin-left:6px;vertical-align:middle}
+.src-seg{width:auto;min-width:0;margin:0}.src-seg button{padding:0 12px;white-space:nowrap}
+.src-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 10px}.src-row small{color:var(--sub)}
+.hold-sum{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px 16px;margin:8px 0}
+.hold-sum div{display:flex;flex-direction:column;gap:2px}.hold-sum span{font-size:12px;color:var(--sub)}.hold-sum b{font-size:15px}

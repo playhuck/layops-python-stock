@@ -64,7 +64,7 @@ function ProfileSummary({ p }: { p: VolumeProfile }) {
   );
 }
 
-export default function ChartCard({ code, source = fetchSeries, profile = fetchProfile }: { code: string; source?: (code: string) => Promise<Row[]>; profile?: (code: string, window: number) => Promise<VolumeProfile> }) {
+export default function ChartCard({ code, source = fetchSeries, profile = fetchProfile, mine }: { code: string; source?: (code: string) => Promise<Row[]>; profile?: (code: string, window: number) => Promise<VolumeProfile>; mine?: { avg: number } }) {
   const [data, setData] = useState<Row[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [view, setView] = useState<View>("price");
@@ -122,6 +122,12 @@ export default function ChartCard({ code, source = fetchSeries, profile = fetchP
                 return <ReferenceArea key={i} x1={String(data[Math.max(0, data.length - 1 - k)].date)} x2={String(data[data.length - 1].date)} y1={b.lo} y2={b.hi}
                                       fill={thick ? "#3182f6" : "#8b95a1"} fillOpacity={thick ? 0.28 : 0.14} stroke="none" ifOverflow="hidden" />;
               })}
+              {view === "price" && mine && data.length > 0 && (() => {      // 내 평단: 현재가에서 50% 넘게 벗어나면 차트가 찌그러지므로 범위를 넓히지 않고 숨긴다
+                const lastClose = Number(data[data.length - 1].close);
+                const near = lastClose > 0 && Math.abs(mine.avg / lastClose - 1) <= 0.5;
+                return <ReferenceLine y={mine.avg} stroke="#e8830a" strokeDasharray="6 3" strokeWidth={1.6} ifOverflow={near ? "extendDomain" : "hidden"}
+                                      label={{ value: "내 평단", position: "insideTopLeft", fontSize: 11, fill: "#e8830a" }} />;
+              })()}
               {view === "rsi" && <><ReferenceLine y={30} stroke="#3182f6" strokeDasharray="3 3" /><ReferenceLine y={70} stroke="#f04452" strokeDasharray="3 3" /></>}
               {view === "stoch" && <><ReferenceLine y={20} stroke="#3182f6" strokeDasharray="3 3" /><ReferenceLine y={80} stroke="#f04452" strokeDasharray="3 3" /></>}
               {view === "macd" && <ReferenceLine y={0} stroke="#8b95a1" />}

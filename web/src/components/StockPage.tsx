@@ -1,16 +1,18 @@
 import { useState } from "react";
 import { removeStock } from "../api";
 import { avatarColor, num, signed, verdictClass, won } from "../format";
-import type { Result } from "../types";
+import type { HoldingsSource, HoldingsView, Result } from "../types";
 import ChartCard from "./ChartCard";
 import FlowCard from "./FlowCard";
 import Gauge from "./Gauge";
+import { krHolding } from "./Holdings";
+import MyHolding from "./MyHolding";
 
 function Meter({ label, v, color }: { label: string; v: number; color: string }) {
   return <div className="meter"><span>{label}</span><div className="bar"><i style={{ width: `${Math.min(100, v)}%`, background: color }} /></div><span className="v">{v}</span></div>;
 }
 
-export default function StockPage({ r, onBack, onToast, onRemoved }: { r: Result; onBack: () => void; onToast: (m: string) => void; onRemoved: () => void }) {
+export default function StockPage({ r, onBack, onToast, onRemoved, holdings, onSource, onHoldings }: { r: Result; onBack: () => void; onToast: (m: string) => void; onRemoved: () => void; holdings: HoldingsView | null; onSource: (s: HoldingsSource) => void; onHoldings: () => void }) {
   const [confirming, setConfirming] = useState(false);
   const i = r.detail.indicators;
   const remove = async () => {
@@ -30,7 +32,8 @@ export default function StockPage({ r, onBack, onToast, onRemoved }: { r: Result
 
       <div className="cols">
       <div className="col-main">
-      <div style={{ order: 2 }}><ChartCard code={r.code} /></div>
+      <div style={{ order: 1 }}><MyHolding code={r.code} price={r.price} holdings={holdings} onSource={onSource} onChanged={onHoldings} onToast={onToast} /></div>
+      <div style={{ order: 2 }}><ChartCard code={r.code} mine={krHolding(holdings, r.code) ? { avg: krHolding(holdings, r.code)!.avg } : undefined} /></div>
       <div style={{ order: 3 }}><FlowCard code={r.code} /></div>
       <section className="card kv-list" style={{ order: 4 }}>
         <h2>지표</h2>

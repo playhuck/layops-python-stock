@@ -1,9 +1,10 @@
 import { avatarColor, signed, verdictClass, won } from "../format";
 import { useState } from "react";
-import type { Dashboard } from "../types";
+import type { Dashboard, HoldingsSource, HoldingsView } from "../types";
+import { krHolding, krUnknownNote, pnlPct, SourceToggle } from "./Holdings";
 import Sparkline from "./Sparkline";
 
-export default function HomePage({ data: d, onOpen, onAdd }: { data: Dashboard; onOpen: (code: string) => void; onAdd: () => void }) {
+export default function HomePage({ data: d, onOpen, onAdd, holdings, onSource }: { data: Dashboard; onOpen: (code: string) => void; onAdd: () => void; holdings: HoldingsView | null; onSource: (s: HoldingsSource) => void }) {
   const data = { ...d, waiting: d.waiting ?? [] };  // 구버전 서버 응답에도 화면이 죽지 않도록
   const [cat, setCat] = useState<string>("");
   const market = Object.entries(data.market ?? {});
@@ -18,13 +19,17 @@ export default function HomePage({ data: d, onOpen, onAdd }: { data: Dashboard; 
     <div className="cols">
       <div className="col-main">
         <div className="section-title" style={{ order: 2 }}>관심 종목 <small>{data.results.length + data.waiting.length}개</small></div>
+        <div className="src-row" style={{ order: 2 }}><small>보유 표시</small><SourceToggle source={holdings?.source ?? "manual"} onChange={onSource} />{krUnknownNote(holdings) && <small className="neg">{krUnknownNote(holdings)}</small>}</div>
         {tags.length > 1 && <div className="chips filter" style={{ order: 2 }}><button className={`chip fil${cat === "" ? " on" : ""}`} onClick={() => setCat("")}>전체</button>{tags.map((t) => <button key={t} className={`chip fil${cat === t ? " on" : ""}`} onClick={() => setCat(t)}>{t} <small>{tagCount[t]}</small></button>)}</div>}
         <section className="card list" style={{ order: 2, padding: "4px 0" }}>
           <div className="thead"><span /><span>종목</span><span className="c-spark">30일 추이</span><span className="r">매수 점수</span><span className="r">매도 점수</span><span className="r c-rsi">RSI</span><span className="r c-fgn">외국인 7일</span><span className="r">현재가 · 판정</span></div>
           {shown.map((r) => (
             <button className="row srow" key={r.code} onClick={() => onOpen(r.code)}>
               <div className="avatar" style={{ background: avatarColor(r.code) }}>{r.name[0]}</div>
-              <div className="mid" title={r.detail.sector?.label}><div className="name">{r.name}</div><small>{r.code}{r.detail.sector?.primary ? ` · ${r.detail.sector.primary}` : ""}</small></div>
+              <div className="mid" title={r.detail.sector?.label}><div className="name">{r.name}{(() => {
+                const h = krHolding(holdings, r.code), p = h ? pnlPct(h, r.price) : null;
+                return h ? <span className="chip held" title={`평균 매수가 ${won(h.avg)}원`}>보유 {h.qty.toLocaleString("ko-KR")}주{p == null ? "" : ` · ${p >= 0 ? "+" : ""}${p.toFixed(1)}%`}</span> : null;
+              })()}</div><small>{r.code}{r.detail.sector?.primary ? ` · ${r.detail.sector.primary}` : ""}</small></div>
               <Sparkline values={r.detail.spark ?? []} />
               <div className="cell r pos">{r.buy_score}</div>
               <div className="cell r neg">{r.sell_score}</div>

@@ -11,7 +11,7 @@ from functools import wraps
 from flask import Flask, abort, jsonify, request, send_from_directory
 from flask.json.provider import DefaultJSONProvider
 
-from . import collector, indicators as ind, us_positions, us_review, usmarket, volume_profile
+from . import collector, holdings, indicators as ind, us_positions, us_review, usmarket, volume_profile
 from . import config as cfgmod, marketflow, sectors, stockseries, usersettings
 from .cli import run, ROOT, summarize_market, load_config
 from .envfile import env
@@ -506,6 +506,44 @@ def us_watch_remove(symbol: str):
         return jsonify({"error": f"{symbol} 보유 종목으로 등록돼 있어요. 보유 등록을 먼저 지우세요"}), 409
     try:
         usmarket.remove_watch(symbol)
+    except KeyError:
+        abort(404)
+    return jsonify({"ok": True})
+
+
+@app.get("/api/holdings")
+def holdings_view():
+    """내 보유 정보(화면 표시용). 선택한 출처(직접 입력/가져와서 반영)의 것만 돌려주고, 직접 입력 모드에서는 토스를 조회하지 않는다."""
+    return jsonify(holdings.view(_engine().gw if holdings.get_source() == "import" else None))
+
+
+@app.put("/api/holdings/source")
+@guarded
+def holdings_source():
+    try:
+        holdings.set_source(str((request.get_json(force=True) or {}).get("source", "")))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"source": holdings.get_source()})
+
+
+@app.put("/api/kr/positions/<code>")
+@guarded
+def kr_position_put(code: str):
+    """한국 보유 직접 입력(화면 표시 전용). 거래 엔진은 토스 보유를 쓰므로 여기 값은 주문·매도 제안에 쓰이지 않는다."""
+    b = request.get_json(force=True) or {}
+    try:
+        p = holdings.kr_register(code, b.get("qty"), b.get("avg_price"), b.get("opened_on"), b.get("note", ""))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({**p, "opened_on": p["opened_on"].isoformat() if p["opened_on"] else None, "updated_at": p["updated_at"].isoformat()})
+
+
+@app.delete("/api/kr/positions/<code>")
+@guarded
+def kr_position_delete(code: str):
+    try:
+        holdings.kr_delete(code)
     except KeyError:
         abort(404)
     return jsonify({"ok": True})
