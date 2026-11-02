@@ -58,7 +58,7 @@ def _verdict(code: str, reason: str | None = None) -> dict:
 
 def _unavailable(reason: str) -> dict:
     return {"verdict": _verdict("na", reason), "evidence": [], "levels": None, "price": None, "as_of": None, "unmet": 0,
-            "note": NOTE, "rules_version": RULES_VERSION}
+            "warnings": [], "note": NOTE, "rules_version": RULES_VERSION}
 
 
 def _day(idx) -> date | None:
@@ -231,7 +231,20 @@ def buy_review(df: pd.DataFrame | None, meta: dict | None = None, mkt: dict | No
     ev.append(_info("참고 가격 (종가 기준)", f"손절 {levels['stop']:,.2f} ({levels['stop_pct']:+.1f}%) · 목표 {levels['target']:,.2f} ({levels['target_pct']:+.1f}%) · 손익비 1:{levels['rr']:.2f}",
                     "ATR 배수로 잡은 참고값이에요. 실제 체결가와 다를 수 있어요"))
     return {"verdict": verdict, "evidence": ev, "levels": levels, "price": price, "as_of": as_of.isoformat(), "unmet": unmet,
-            "note": NOTE, "rules_version": RULES_VERSION}
+            "warnings": [], "note": NOTE, "rules_version": RULES_VERSION}
+
+
+def _split_warning(d: pd.DataFrame, avg: float, since) -> str | None:
+    """평단이 보유 기간 시세 범위를 벗어나면 액면분할·역분할 미반영을 의심한다. 야후 시세는 분할이 소급 반영되지만 저장된 평단은 그대로다.
+    보유 기간(진입일 이후)이 5봉 미만이면 최근 250거래일을 본다. 오래전에 산 경우에도 뜰 수 있어 단정하지 않는 문구를 쓴다."""
+    w, span = (d[d.index >= pd.Timestamp(since)], "보유 기간") if since else (d.iloc[:0], "")
+    if len(w) < 5:
+        w, span = d.tail(250), "최근 250거래일"
+    lo, hi = float(w["low"].min()), float(w["high"].max())
+    if avg > hi * 1.1 or avg < lo * 0.9:
+        return (f"평균 매수가 {avg:,.2f} 이(가) {span} 시세 범위({lo:,.2f}~{hi:,.2f})를 벗어나 있어요. "
+                "액면분할·역분할이 있었다면 수량과 평균 매수가를 직접 고쳐 주세요 (야후 시세는 분할이 반영되지만 저장된 값은 자동으로 안 바뀌어요)")
+    return None
 
 
 def sell_review(df: pd.DataFrame | None, position: dict, meta: dict | None = None, mkt: dict | None = None, today: date | None = None) -> dict:
@@ -247,20 +260,27 @@ def sell_review(df: pd.DataFrame | None, position: dict, meta: dict | None = Non
     last = d.iloc[-1]
     as_of = d.index[-1].date()
 
+    # 손절·목표·트레일링은 '진입 당시의 ATR'로 고정한다. 오늘 ATR 을 쓰면 변동성이 커질수록 손절선이 내려가 손실 허용폭이 늘어난다.
+    # 저장된 진입 ATR 이 없는 옛 기록만 현재 ATR 로 계산하고 그렇다고 표시한다.
+    entry_atr = _f(position.get("entry_atr"))
+    fixed = entry_atr is not None and entry_atr > 0
+    k_atr = entry_atr if fixed else atr
+    atr_note = f"진입 ATR ${k_atr:,.2f} 고정" if fixed else f"진입 ATR 이 없어 현재 ATR ${k_atr:,.2f} 로 계산 (변동성에 따라 움직여요)"
     closes = d["close"]
-    if opened:                                              # 진입 이전의 고점이 트레일링 기준에 섞이지 않게 진입일 이후만 본다
-        since = closes[closes.index >= pd.Timestamp(opened)]
-        hi = max(float(since.tail(20).max()), avg) if len(since) else max(avg, price)
-        hi_label = "진입 이후 20일 고점"
+    track = position.get("tracked_from") or opened
+    if track:                                               # 진입 이후의 최고 종가: 내려가지 않는 기준이라 트레일링 선도 내려가지 않는다
+        since = closes[closes.index >= pd.Timestamp(track)]
+        hi = max(float(since.max()), avg) if len(since) else max(avg, price)
+        hi_label = "진입 이후 최고 종가"
     else:
-        hi, hi_label = float(closes.tail(20).max()), "20일 고점"
-    stop, trail, target = avg - STOP_K * atr, hi - TRAIL_K * atr, avg + TARGET_K * atr
+        hi, hi_label = float(closes.tail(20).max()), "최근 20일 고점(진입일 미상)"
+    stop, trail, target = avg - STOP_K * k_atr, hi - TRAIL_K * k_atr, avg + TARGET_K * k_atr
     ma20, rsi = _f(last.ma20), _f(last.rsi)
 
     hard = [
-        _chk(f"손절선 이탈 (평단 −{STOP_K:g} ATR)", price <= stop, f"현재 {price:,.2f} / 손절선 {stop:,.2f}", f"ATR×{STOP_K:g}"),
-        _chk(f"트레일링 스탑 ({hi_label} −{TRAIL_K:g} ATR)", price <= trail, f"현재 {price:,.2f} / 기준 {trail:,.2f}", f"ATR×{TRAIL_K:g}"),
-        _chk(f"목표가 도달 (평단 +{TARGET_K:g} ATR)", price >= target, f"현재 {price:,.2f} / 목표 {target:,.2f}", f"ATR×{TARGET_K:g}"),
+        _chk(f"손절선 이탈 (평단 −{STOP_K:g} ATR)", price <= stop, f"현재 {price:,.2f} / 손절선 {stop:,.2f}", atr_note),
+        _chk(f"트레일링 ({hi_label} −{TRAIL_K:g} ATR)", price <= trail, f"현재 {price:,.2f} / 기준 {trail:,.2f}", atr_note + (" · 기준선은 내려가지 않아요" if fixed and track else "")),
+        _chk(f"목표가 도달 (평단 +{TARGET_K:g} ATR)", price >= target, f"현재 {price:,.2f} / 목표 {target:,.2f}", atr_note),
     ]
     miss = []
     if ma20 is None:
@@ -301,7 +321,13 @@ def sell_review(df: pd.DataFrame | None, position: dict, meta: dict | None = Non
     head = _info("보유", f"{qty:g}주 @ {avg:,.2f} (평가손익 {pnl_pct:+.1f}% · {sign}${abs(pnl_val):,.0f})",
                  "평가손익은 달러 기준이고 수수료·세금·환율·배당은 제외예요. 아래에서 주황 ! 표시가 현재 해당하는 조건이에요")
     fresh = _info("시세 최신성", f"마지막 완성 봉 {as_of} ({stale}일 전)", f"{STALE_DAYS}일 이내" + (" · 넘으면 보유 유지를 표시하지 않아요" if not stale_bad else " · 지금은 오래된 시세예요"))
-    ev = [head, fresh] + hard + soft + earn_info + [_info(f"참고 {m}", "확인 불가", "이 항목을 못 구했어요") for m in miss] + _common_info(d, meta)
-    levels = {"stop": stop, "trail": trail, "target": target, "ma20": ma20, "atr": atr, "ref": price}
+    src = {"opened": "매수일 직전 종가 기준", "registered": "등록 시점 기준", "manual": "직접 입력"}.get(position.get("entry_atr_source"), "")
+    if fixed:
+        atr_info = _info("진입 ATR", f"${entry_atr:,.2f}" + (f" ({src})" if src else "") + f" · 현재 ATR ${atr:,.2f}", "손절·목표·트레일링은 이 값으로 고정해서 계산해요")
+    else:
+        atr_info = _info("진입 ATR", "저장된 값 없음", f"현재 ATR ${atr:,.2f} 로 계산 중이라 변동성이 커지면 손절선이 내려가요. 보유를 다시 저장하면 채워져요")
+    ev = [head, fresh, atr_info] + hard + soft + earn_info + [_info(f"참고 {m}", "확인 불가", "이 항목을 못 구했어요") for m in miss] + _common_info(d, meta)
+    levels = {"stop": stop, "trail": trail, "target": target, "ma20": ma20, "atr": atr, "entry_atr": entry_atr if fixed else None, "ref": price, "high": hi}
+    warnings = [w for w in [_split_warning(d, avg, track or opened)] if w]
     return {"verdict": verdict, "evidence": ev, "levels": levels, "price": price, "as_of": as_of.isoformat(), "unmet": len(hit_hard) + len(hit_soft),
-            "pnl_pct": pnl_pct, "pnl_value": pnl_val, "value": price * qty, "note": NOTE, "rules_version": RULES_VERSION}
+            "pnl_pct": pnl_pct, "pnl_value": pnl_val, "value": price * qty, "warnings": warnings, "note": NOTE, "rules_version": RULES_VERSION}

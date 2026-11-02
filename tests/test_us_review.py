@@ -51,7 +51,7 @@ def test_validate_rejects_bad_input(args):
 def test_validate_dates_and_normalization():
     today = date(2026, 10, 30)
     v = us_positions.validate(" soun ", "2.5", "11.20", "2026-10-01", "  메모  ", today=today)
-    assert v == {"symbol": "SOUN", "qty": 2.5, "avg_price": 11.2, "opened_on": date(2026, 10, 1), "note": "메모"}
+    assert v == {"symbol": "SOUN", "qty": 2.5, "avg_price": 11.2, "opened_on": date(2026, 10, 1), "note": "메모", "entry_atr": None}
     assert us_positions.validate("AAA", 1, 1, None, today=today)["opened_on"] is None
     assert us_positions.validate("AAA", 1, 1, "", today=today)["opened_on"] is None
     for bad in ("2026-13-01", "10/01/2026", "2026-10-31"):                       # 형식 오류, 미래
@@ -164,3 +164,94 @@ def test_us_judgment_code_never_touches_orders():
             elif isinstance(n, ast.ImportFrom):
                 mods |= {(n.module or "") + "." + a.name for a in n.names} | {n.module or ""}
         assert not any("trading" in m or "toss" in m for m in mods), f"{name} 이(가) 주문 코드를 가져옴: {sorted(mods)}"
+
+
+# -- B단계: 진입 ATR 고정 --------------------------------------------------------------------------
+from stockwatch import indicators as ind
+
+
+@pytest.mark.parametrize("atr", [0, -1, "x", float("nan"), float("inf"), 11])               # 평균 매수가(10)보다 크거나 같지 않은 값, 숫자가 아닌 값
+def test_validate_rejects_bad_entry_atr(atr):
+    with pytest.raises(ValueError):
+        us_positions.validate("AAA", 1, 10, entry_atr=atr)
+
+
+def test_validate_accepts_entry_atr_and_blank_means_auto():
+    assert us_positions.validate("AAA", 1, 10, entry_atr="1.5")["entry_atr"] == 1.5
+    assert us_positions.validate("AAA", 1, 10, entry_atr="")["entry_atr"] is None
+
+
+def test_snapshot_atr_uses_bars_before_the_buy_date_and_falls_back():
+    df = bars()
+    d = df.index[100].date()
+    a, src = us_positions.snapshot_atr(df, d)
+    assert src == "opened" and a == pytest.approx(float(ind.atr(df[df.index < pd.Timestamp(d)]).iloc[-1]))
+    a2, src2 = us_positions.snapshot_atr(df, df.index[5].date())                  # 매수일 이전 시세가 모자라면 최근 ATR
+    assert src2 == "registered" and a2 == pytest.approx(float(ind.atr(df).iloc[-1]))
+    assert us_positions.snapshot_atr(df, None)[1] == "registered"
+    assert us_positions.snapshot_atr(df.iloc[:10], None) == (None, None) and us_positions.snapshot_atr(None, None) == (None, None)
+
+
+def test_register_stores_entry_atr_and_tracking_start(offline):
+    df = bars()
+    d = df.index[100].date()
+    p = us_positions.register("AAA", 3, 100, d.isoformat())
+    assert p["entry_atr_source"] == "opened" and p["tracked_from"] == d
+    assert p["entry_atr"] == pytest.approx(float(ind.atr(df[df.index < pd.Timestamp(d)]).iloc[-1]))
+    q = us_positions.register("AAA", 3, 100)                                         # 매수일 없음: 등록 시점 ATR, 추적은 오늘부터
+    assert q["entry_atr_source"] == "registered" and q["opened_on"] is None and q["tracked_from"] is not None
+
+
+def test_editing_note_or_qty_keeps_the_stored_entry_atr_but_changing_the_average_recomputes(offline):
+    df = bars()
+    d = df.index[100].date().isoformat()
+    first = us_positions.register("AAA", 3, 100, d, "a")
+    db.get().execute("UPDATE us_positions SET entry_atr=1.234, tracked_from='2026-09-01' WHERE symbol='AAA'")     # 저장된 값이 유지되는지 보려고 표시를 남긴다
+    kept = us_positions.register("AAA", 9, 100, d, "메모만 바꿈")
+    assert kept["entry_atr"] == 1.234 and str(kept["tracked_from"]) == "2026-09-01" and kept["qty"] == 9
+    changed = us_positions.register("AAA", 9, 105, d)                                # 평균 매수가가 바뀌면(추가 매수) 다시 잡는다
+    assert changed["entry_atr"] == pytest.approx(first["entry_atr"]) and changed["entry_atr"] != 1.234
+
+
+def test_manual_entry_atr_wins_and_is_kept_on_unchanged_edits(offline):
+    p = us_positions.register("AAA", 3, 100, entry_atr="2.5")
+    assert p["entry_atr"] == 2.5 and p["entry_atr_source"] == "manual"
+    again = us_positions.register("AAA", 4, 100, note="x")
+    assert again["entry_atr"] == 2.5 and again["entry_atr_source"] == "manual"
+
+
+def test_old_table_without_the_new_columns_is_migrated():
+    import psycopg
+    schema = "test_mig_" + __import__("uuid").uuid4().hex[:8]
+    assert schema.startswith("test_")
+    try:
+        with psycopg.connect(db.Database._conninfo(), autocommit=True) as c:
+            c.execute(f"CREATE SCHEMA {schema}")
+            c.execute(f"CREATE TABLE {schema}.us_positions(symbol TEXT PRIMARY KEY, qty DOUBLE PRECISION NOT NULL, avg_price DOUBLE PRECISION NOT NULL, "
+                      "opened_on DATE, note TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now())")
+            c.execute(f"INSERT INTO {schema}.us_positions(symbol,qty,avg_price) VALUES('OLD',1,10)")
+        d2 = db.Database(schema=schema)                                              # 생성 시 스키마 적용(멱등)
+        try:
+            row = d2.execute("SELECT symbol, entry_atr, entry_atr_source, tracked_from FROM us_positions").fetchone()
+            assert row == {"symbol": "OLD", "entry_atr": None, "entry_atr_source": None, "tracked_from": None}     # 옛 기록은 그대로, 새 컬럼은 비어 있다
+            with pytest.raises(Exception):
+                d2.execute("UPDATE us_positions SET entry_atr=-1")
+        finally:
+            d2.close()
+    finally:
+        with psycopg.connect(db.Database._conninfo(), autocommit=True) as c:
+            c.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
+
+
+def test_api_entry_atr_roundtrip_and_judgment_uses_the_fixed_value(offline):
+    from stockwatch.web import app
+    c = app.test_client()
+    marketdb.upsert_prices("^IXIC", bars(close0=1000.0, step=0.05))
+    marketdb.upsert_prices("^VIX", bars(close0=16.0, step=0.0))
+    r = c.put("/api/us/positions/AAA", json={"qty": 2, "avg_price": 130, "entry_atr": 2.0}, headers=H)
+    body = strict(r)
+    assert r.status_code == 200 and body["entry_atr"] == 2.0 and body["entry_atr_source"] == "manual" and body["tracked_from"]
+    sell = strict(c.get("/api/us/judgment"))["stocks"][0]["sell"]
+    assert sell["levels"]["entry_atr"] == 2.0 and sell["levels"]["stop"] == pytest.approx(130 - 2.0 * 2.0)
+    assert any(e["label"] == "진입 ATR" and "직접 입력" in e["value"] for e in sell["evidence"])
+    assert c.put("/api/us/positions/AAA", json={"qty": 2, "avg_price": 130, "entry_atr": -1}, headers=H).status_code == 400

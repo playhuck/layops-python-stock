@@ -65,7 +65,12 @@ CREATE TABLE IF NOT EXISTS us_meta(
 -- 미국 보유 종목(사용자가 직접 입력). 주문과 연결되지 않고 매도 검토 화면의 입력으로만 쓴다. 종목당 평단 한 줄, 수량은 소수 주식을 위해 실수
 CREATE TABLE IF NOT EXISTS us_positions(
   symbol TEXT PRIMARY KEY, qty DOUBLE PRECISION NOT NULL CHECK (qty > 0), avg_price DOUBLE PRECISION NOT NULL CHECK (avg_price > 0),
-  opened_on DATE, note TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
+  opened_on DATE, note TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  entry_atr DOUBLE PRECISION CHECK (entry_atr > 0), entry_atr_source TEXT, tracked_from DATE);
+-- 손절·목표·트레일링을 진입 당시 ATR 로 고정하기 위한 컬럼. 이미 만들어진 테이블에도 붙인다
+ALTER TABLE us_positions ADD COLUMN IF NOT EXISTS entry_atr DOUBLE PRECISION CHECK (entry_atr > 0);
+ALTER TABLE us_positions ADD COLUMN IF NOT EXISTS entry_atr_source TEXT;
+ALTER TABLE us_positions ADD COLUMN IF NOT EXISTS tracked_from DATE;
 """
 
 

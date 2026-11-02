@@ -244,3 +244,62 @@ def test_relative_strength_uses_common_trading_days():
 def test_buy_is_held_when_nasdaq_lags_the_stock_by_a_day():
     r = review(bench=bench().iloc[:-1])
     assert r["verdict"]["code"] == "na" and "상대강도" in r["verdict"]["reason"]
+
+
+# -- B단계: 진입 ATR 고정·상승형 트레일링·분할 경고 ---------------------------------------------------
+def pos(df, avg=0.95, **kw):
+    return {"qty": 10, "avg_price": avg * float(df["close"].iloc[-1]), "opened_on": None, **kw}
+
+
+def test_levels_use_the_stored_entry_atr_not_todays_atr():
+    calm = frame()
+    wild = calm.copy()
+    wild.iloc[-10:, wild.columns.get_loc("high")] *= 1.08
+    wild.iloc[-10:, wild.columns.get_loc("low")] *= 0.92
+    avg = 135.0
+    p = {"qty": 1, "avg_price": avg, "opened_on": None, "entry_atr": 2.5, "tracked_from": date(2026, 9, 1)}
+    a = uj.sell_review(calm, p, mkt=GOOD_MKT, today=TODAY)
+    b = uj.sell_review(wild, p, mkt=GOOD_MKT, today=TODAY)
+    for r in (a, b):
+        assert r["levels"]["stop"] == pytest.approx(avg - uj.STOP_K * 2.5)
+        assert r["levels"]["target"] == pytest.approx(avg + uj.TARGET_K * 2.5)
+        assert r["levels"]["entry_atr"] == 2.5
+    assert a["levels"]["atr"] != b["levels"]["atr"]                                 # 현재 ATR 은 달라도 손절선은 같다
+    legacy = {"qty": 1, "avg_price": avg, "opened_on": None}
+    x, y = (uj.sell_review(f, legacy, mkt=GOOD_MKT, today=TODAY) for f in (calm, wild))
+    assert x["levels"]["stop"] != y["levels"]["stop"] and x["levels"]["entry_atr"] is None      # 저장된 값이 없는 옛 기록만 현재 ATR 을 쓴다
+    assert any(e["label"] == "진입 ATR" and e["value"] == "저장된 값 없음" for e in x["evidence"])
+    assert any("진입 ATR 이 없어" in e["threshold"] for e in x["evidence"] if e["label"].startswith("손절선"))
+
+
+def test_trailing_uses_the_highest_close_since_entry_even_beyond_20_days_and_never_falls():
+    idx = pd.bdate_range(end="2026-10-29", periods=140)
+    c = np.concatenate([np.full(50, 100.0), np.linspace(100, 160, 30), np.linspace(160, 140, 60)])      # 고점(160)이 60거래일 전
+    df = pd.DataFrame({"open": c, "high": c * 1.005, "low": c * 0.995, "close": c, "volume": 3e6}, index=idx)
+    p = {"qty": 1, "avg_price": 100.0, "opened_on": idx[40].date(), "entry_atr": 3.0, "tracked_from": idx[40].date()}
+    r = uj.sell_review(df, p, mkt=GOOD_MKT, today=TODAY)
+    assert r["levels"]["high"] == pytest.approx(160.0)                              # 최근 20일 고점이 아니라 진입 이후 최고 종가
+    assert r["levels"]["trail"] == pytest.approx(160.0 - uj.TRAIL_K * 3.0)
+    trails = [uj.sell_review(df.iloc[:k], p, mkt=GOOD_MKT, today=TODAY)["levels"]["trail"] for k in range(60, 141, 5)]
+    assert all(b >= a - 1e-9 for a, b in zip(trails, trails[1:]))                   # 시간이 지나도 기준선이 내려가지 않는다
+    assert passed(r, "트레일링") is True and r["verdict"]["code"] == "sell"          # 160 → 140: 기준선(152.5) 아래라 해당
+    old_rule_line = float(df["close"].tail(20).max()) - uj.TRAIL_K * 3.0              # 예전 방식(최근 20일 고점)이면 기준선이 내려가 안 걸렸을 상황
+    assert df["close"].iloc[-1] > old_rule_line
+
+
+def test_trailing_without_a_stored_entry_date_is_labeled_as_a_20_day_high():
+    r = sell(avg=0.95)
+    assert any("최근 20일 고점(진입일 미상)" in e["label"] for e in r["evidence"])
+
+
+def test_split_suspicion_warning():
+    df = frame()                                                                    # 시세 범위는 대략 100~150
+    ok = uj.sell_review(df, {"qty": 1, "avg_price": 120.0, "opened_on": None}, mkt=GOOD_MKT, today=TODAY)
+    assert ok["warnings"] == []
+    fwd = uj.sell_review(df, {"qty": 1, "avg_price": 300.0, "opened_on": None}, mkt=GOOD_MKT, today=TODAY)     # 2:1 분할 전 평단이 그대로
+    rev = uj.sell_review(df, {"qty": 1, "avg_price": 8.0, "opened_on": None}, mkt=GOOD_MKT, today=TODAY)       # 1:10 역분할 후 시세만 커진 경우
+    for r in (fwd, rev):
+        assert len(r["warnings"]) == 1 and "분할" in r["warnings"][0]
+    since = uj.sell_review(df, {"qty": 1, "avg_price": 105.0, "opened_on": df.index[-30].date()}, mkt=GOOD_MKT, today=TODAY)
+    assert since["warnings"] and "시세 범위" in since["warnings"][0]                  # 보유 기간만 본다: 그 기간 저가보다 훨씬 낮은 평단
+    assert review()["warnings"] == [] and uj.buy_review(None)["warnings"] == []

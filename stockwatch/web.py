@@ -528,7 +528,7 @@ def us_position_put(symbol: str):
     """보유 종목 등록·수정(직접 입력). 관심 종목에 없으면 시세 수집과 함께 추가한다. 어떤 주문도 내지 않는다."""
     b = request.get_json(force=True) or {}
     try:
-        p = us_positions.register(symbol, b.get("qty"), b.get("avg_price"), b.get("opened_on"), b.get("note", ""), str(b.get("name", "")))
+        p = us_positions.register(symbol, b.get("qty"), b.get("avg_price"), b.get("opened_on"), b.get("note", ""), str(b.get("name", "")), b.get("entry_atr"))
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     return jsonify(us_review._position_json(p))

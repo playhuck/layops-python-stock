@@ -22,8 +22,9 @@ def market_regime() -> dict:
 
 
 def _position_json(p: dict) -> dict:
-    return {"symbol": p["symbol"], "qty": p["qty"], "avg_price": p["avg_price"], "note": p["note"],
-            "opened_on": p["opened_on"].isoformat() if p["opened_on"] else None}
+    iso = lambda d: d.isoformat() if d else None
+    return {"symbol": p["symbol"], "qty": p["qty"], "avg_price": p["avg_price"], "note": p["note"], "opened_on": iso(p["opened_on"]),
+            "entry_atr": p["entry_atr"], "entry_atr_source": p["entry_atr_source"], "tracked_from": iso(p["tracked_from"])}
 
 
 def judgments() -> dict:

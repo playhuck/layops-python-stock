@@ -95,12 +95,12 @@ export interface VolumeProfile {
 export interface UsVerdict { code: "review" | "review_check" | "watch" | "blocked" | "na" | "sell" | "caution" | "hold"; label: string; reason: string | null }
 export interface UsReview {
   verdict: UsVerdict; evidence: Check[]; levels: Record<string, number | null> | null; price: number | null; as_of: string | null; unmet: number;
-  pnl_pct?: number; pnl_value?: number; value?: number; note: string; rules_version: number;
+  pnl_pct?: number; pnl_value?: number; value?: number; warnings: string[]; note: string; rules_version: number;
 }
-export interface UsPosition { symbol: string; qty: number; avg_price: number; opened_on: string | null; note: string }
+export interface UsPosition { symbol: string; qty: number; avg_price: number; opened_on: string | null; note: string; entry_atr: number | null; entry_atr_source: "opened" | "registered" | "manual" | null; tracked_from: string | null }
 export interface UsJudgmentStock { symbol: string; name: string; buy: UsReview; position: UsPosition | null; sell: UsReview | null }
 export interface UsJudgment {
   market: { ok: boolean | null; vix: number | null; nasdaq_above_ma50: boolean | null; text: string };
   stocks: UsJudgmentStock[]; note: string; rules_version: number;
 }
-export interface UsPositionInput { qty: number; avg_price: number; opened_on: string | null; note: string; name?: string }
+export interface UsPositionInput { qty: number; avg_price: number; opened_on: string | null; note: string; entry_atr?: number | null; name?: string }

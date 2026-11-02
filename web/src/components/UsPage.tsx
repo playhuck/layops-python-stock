@@ -158,7 +158,8 @@ function Discover({ onAdded }: { onAdded: (symbol: string) => void }) {
   );
 }
 
-const EMPTY = { symbol: "", qty: "", avg: "", date: "", note: "" };
+const EMPTY = { symbol: "", qty: "", avg: "", date: "", note: "", atr: "" };
+const ATR_SRC = { opened: "매수일 직전 종가 기준", registered: "등록 시점 기준", manual: "직접 입력" };
 
 /** 직접 입력한 보유 종목과 매도 검토. 주문은 없고, 저장한 값은 판단의 입력으로만 쓰인다 */
 function Holdings({ jd, jdErr, onChanged, onToast }: { jd: UsJudgment | null; jdErr: boolean; onChanged: () => void; onToast: (m: string) => void }) {
@@ -173,12 +174,12 @@ function Holdings({ jd, jdErr, onChanged, onToast }: { jd: UsJudgment | null; jd
     const symbol = f.symbol.trim().toUpperCase();
     setBusy(true);
     try {
-      await putUsPosition(symbol, { qty: Number(f.qty), avg_price: Number(f.avg), opened_on: f.date || null, note: f.note });
+      await putUsPosition(symbol, { qty: Number(f.qty), avg_price: Number(f.avg), opened_on: f.date || null, note: f.note, entry_atr: f.atr.trim() === "" ? null : Number(f.atr) });
       setF(EMPTY); onToast(`${symbol} 보유를 저장했어요`); onChanged();
     } catch (err) { onToast((err as Error).message); }
     setBusy(false);
   };
-  const edit = (p: UsJudgmentStock["position"]) => p && setF({ symbol: p.symbol, qty: String(p.qty), avg: String(p.avg_price), date: p.opened_on ?? "", note: p.note });
+  const edit = (p: UsJudgmentStock["position"]) => p && setF({ symbol: p.symbol, qty: String(p.qty), avg: String(p.avg_price), date: p.opened_on ?? "", note: p.note, atr: p.entry_atr_source === "manual" && p.entry_atr != null ? String(p.entry_atr) : "" });
   const remove = async (symbol: string) => {
     if (del !== symbol) { setDel(symbol); setTimeout(() => setDel((cur) => (cur === symbol ? null : cur)), 3000); return; }   // 두 번 눌러야 지운다
     try { await deleteUsPosition(symbol); setDel(null); onToast(`${symbol} 보유 등록을 지웠어요`); onChanged(); } catch (err) { onToast((err as Error).message); }
@@ -186,12 +187,13 @@ function Holdings({ jd, jdErr, onChanged, onToast }: { jd: UsJudgment | null; jd
   return (
     <section className="card">
       <h2 style={{ margin: "0 0 4px" }}>내 보유 종목 <small>(매도 검토)</small></h2>
-      <p className="us-note">직접 입력한 종목만 판단해요. 주문은 나가지 않고, 매수·매도는 직접 하세요. 평가손익은 달러 기준이고 수수료·세금·환율·배당은 빠져 있어요. {jd?.note ?? ""}</p>
+      <p className="us-note">직접 입력한 종목만 판단해요. 주문은 나가지 않고, 매수·매도는 직접 하세요. 평가손익은 달러 기준이고 수수료·세금·환율·배당은 빠져 있어요. 액면분할·역분할이 있으면 수량과 평균 매수가를 직접 고쳐 주세요. {jd?.note ?? ""}</p>
       <form className="us-form" onSubmit={submit}>
         <label>티커<input className="input sm" value={f.symbol} onChange={set("symbol")} placeholder="SOUN" maxLength={5} required /></label>
         <label>수량<input className="input sm" value={f.qty} onChange={set("qty")} placeholder="10" inputMode="decimal" required /></label>
         <label>평균 매수가($)<input className="input sm" value={f.avg} onChange={set("avg")} placeholder="11.20" inputMode="decimal" required /></label>
         <label>매수일(선택)<input className="input sm wide" type="date" value={f.date} onChange={set("date")} /></label>
+        <label title="비우면 매수일 직전(없으면 지금) 시세로 자동 계산해요. 손절·목표·트레일링은 이 값으로 고정돼요">진입 ATR($, 선택)<input className="input sm" value={f.atr} onChange={set("atr")} placeholder="자동" inputMode="decimal" /></label>
         <label>메모(선택)<input className="input sm wide" value={f.note} onChange={set("note")} maxLength={200} /></label>
         <button className="add" type="submit" disabled={busy}>{busy ? "저장 중…" : "저장"}</button>
         {f.symbol && <button className="add" type="button" onClick={() => setF(EMPTY)}>입력 비우기</button>}
@@ -205,17 +207,18 @@ function Holdings({ jd, jdErr, onChanged, onToast }: { jd: UsJudgment | null; jd
           <div className="us-hold" key={s.symbol}>
             <div className="row" onClick={() => setOpen(open === s.symbol ? null : s.symbol)}>
               <b>{s.symbol}</b> <small className="muted">{s.name}</small> <Verdict v={r.verdict} />
-              <span className="sub">{p.qty}주 @ {px2(p.avg_price)} · 현재 {px2(r.price)} · <span className={cls(r.pnl_pct)}>{pct(r.pnl_pct)}</span></span>
+              <span className="sub">{p.qty}주 @ {px2(p.avg_price)} · 현재 {px2(r.price)} · <span className={cls(r.pnl_pct)}>{pct(r.pnl_pct)}</span>{p.entry_atr != null && <> · 진입 ATR ${px2(p.entry_atr)}{p.entry_atr_source ? ` (${ATR_SRC[p.entry_atr_source]})` : ""}</>}</span>
               <span className="btns" onClick={(e) => e.stopPropagation()}>
                 <button className="add" onClick={() => edit(p)}>수정</button>
                 <button className="add" onClick={() => remove(s.symbol)}>{del === s.symbol ? "정말 지우기" : "삭제"}</button>
               </span>
             </div>
             {r.verdict.reason && <p className="us-reason">{r.verdict.reason}</p>}
+            {r.warnings.map((w) => <p key={w} className="notice" style={{ margin: "6px 0 0" }}>⚠ {w}</p>)}
             {open === s.symbol && (
               <>
                 <Evidence items={r.evidence} hit />
-                <p className="us-levels">{r.as_of ? `${r.as_of} 종가 기준 · ` : ""}손절선 {px2(l.stop)} · 트레일링 {px2(l.trail)} · 목표 {px2(l.target)} · 20일선 {px2(l.ma20)}</p>
+                <p className="us-levels">{r.as_of ? `${r.as_of} 종가 기준 · ` : ""}손절선 {px2(l.stop)} · 트레일링 {px2(l.trail)}(진입 이후 최고 종가 {px2(l.high)}) · 목표 {px2(l.target)} · 20일선 {px2(l.ma20)}</p>
               </>
             )}
           </div>
