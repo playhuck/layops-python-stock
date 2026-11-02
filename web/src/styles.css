@@ -229,3 +229,20 @@ select.input{appearance:auto;padding:12px 14px;font-size:14px}
 .legend .lg.reset{background:transparent;color:var(--sub);text-decoration:underline}
 .legend-hint{margin:8px 2px 0;font-size:11px;color:var(--sub)}
 .tbl tbody tr.sel td{background:var(--fill)}
+
+/* 차트 선 설명 */
+.chart-head{display:flex;align-items:flex-start;gap:8px;margin-bottom:12px}.chart-head .seg{flex:1;min-width:0;margin-bottom:0}
+.tools{display:flex;gap:8px;align-items:center}.tools .seg{margin:0}
+.help-btn{flex:none;height:40px;padding:0 12px;border-radius:12px;background:var(--fill);color:var(--sub);font-size:13px;font-weight:600;white-space:nowrap}
+.help-btn:hover,.help-btn.on{color:var(--fg)}.help-btn.on{background:var(--card);outline:2px solid var(--fg)}
+.help-panel{background:var(--fill);border-radius:14px;padding:14px 16px;margin:0 0 12px}
+.help-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:14px}
+.help-x{background:none;color:var(--sub);font-size:12px;text-decoration:underline}
+.help-panel dl{margin:0}.help-it{padding:8px 0;border-top:1px solid var(--line)}.help-it:first-child{border-top:0}
+.help-it dt{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700}.help-it dd{margin:4px 0 0 24px;font-size:13px;line-height:1.55;color:var(--sub)}
+.help-it i{flex:none;display:inline-block;width:16px;height:3px;border-radius:2px;background:var(--c)}
+.help-it i.bar{height:9px;border-radius:2px}.help-it i.dash{height:0;background:none;border-top:2px dashed var(--c)}
+.help-note{margin:8px 0 0;font-size:12px;color:var(--sub)}
+.prof-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 8px}
+.prof-bar .prof-win{margin:0;min-width:0;width:auto}.prof-bar .prof-win button{padding:0 12px}
+.prof-sum{margin:0 0 8px;font-size:12.5px;line-height:1.55}.prof-sum b{font-weight:700}

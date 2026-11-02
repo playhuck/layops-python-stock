@@ -290,6 +290,11 @@ def _read(symbol: str) -> pd.DataFrame:
     return marketdb.read_prices(symbol).tail(INPUT_ROWS)
 
 
+def read_for_profile(symbol: str) -> pd.DataFrame:
+    """매물대 계산용 시세 (지표 입력과 같은 최근 INPUT_ROWS 행)."""
+    return _read(symbol)
+
+
 def market_overview() -> list[dict]:
     rows = []
     for sym, name in MARKET.items():

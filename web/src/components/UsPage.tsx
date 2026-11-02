@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
-import { addUsStock, fetchUsDiscover, fetchUsOverview, fetchUsSeries, fetchUsStocks, refreshUs, removeUsStock } from "../api";
+import { addUsStock, fetchUsDiscover, fetchUsOverview, fetchUsProfile, fetchUsSeries, fetchUsStocks, refreshUs, removeUsStock } from "../api";
 import { num, pct, usd } from "../format";
 import type { UsDiscoverHit, UsOverview, UsStock, UsStocks } from "../types";
 import ChartCard from "./ChartCard";
@@ -80,7 +80,7 @@ export default function UsPage({ onToast }: { onToast: (m: string) => void }) {
           <div style={{ marginTop: 14, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
             <h3 style={{ margin: "0 0 4px" }}>{sel.symbol} <small className="muted">{sel.name}</small></h3>
             <Detail s={sel} onRemove={() => remove(sel)} />
-            {!sel.pending && <ChartCard code={sel.symbol} source={fetchUsSeries} />}
+            {!sel.pending && <ChartCard code={sel.symbol} source={fetchUsSeries} profile={fetchUsProfile} />}
           </div>
         )}
         <small>사실값만 보여줘요. "매수 적기" 같은 판정은 검증 전이라 만들지 않았어요. 등락 색은 한국 화면과 같게 빨강=상승, 파랑=하락이에요. 종가는 완성된 마지막 거래일 기준(달러)이고, 실적일·공매도·시총은 야후 정보라 틀릴 수 있어요.</small>

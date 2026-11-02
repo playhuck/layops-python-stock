@@ -77,3 +77,14 @@ export interface UsStock {
 }
 export interface UsStocks { stocks: UsStock[]; status: Status; max: number }
 export interface UsDiscoverHit { symbol: string; name: string; market_cap: N; price: N; avg_volume: N; exchange: string | null; added: boolean }
+
+// 일봉 범위 기반 추정 매물대 (stockwatch/volume_profile.py). ok=false 면 reason 만 의미가 있다
+export interface ProfileZone { lo: number; hi: number; share: number; peak_mult: number }
+export interface ProfileReach extends ProfileZone { enter_pct: number; enter_atr: N; break_pct?: number; break_atr?: N }
+export interface ProfileBin { lo: number; hi: number; volume: number; share: number; rel_poc: number; mult: number }
+export interface VolumeProfile {
+  ok: boolean; reason: string | null;
+  meta: { method_version: number; window?: number; bins?: number; thickness_multiple?: number; allocation?: string; last_date?: string; bars_used?: number; bars_excluded?: number };
+  price?: number; atr?: N; bins?: ProfileBin[]; poc?: { lo: number; hi: number; share: number }; zones?: ProfileZone[];
+  inside?: ProfileZone | null; up?: ProfileReach | null; down?: ProfileReach | null;
+}

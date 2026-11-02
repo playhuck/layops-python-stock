@@ -11,7 +11,7 @@ from functools import wraps
 from flask import Flask, abort, jsonify, request, send_from_directory
 from flask.json.provider import DefaultJSONProvider
 
-from . import collector, indicators as ind, usmarket
+from . import collector, indicators as ind, usmarket, volume_profile
 from . import config as cfgmod, marketflow, sectors, stockseries, usersettings
 from .cli import run, ROOT, summarize_market, load_config
 from .envfile import env
@@ -241,6 +241,32 @@ def stock_series(code: str):
     return jsonify(stockseries.build(_provider(), code, days))
 
 
+PROFILE_WINDOWS = (60, 120, 250)
+
+
+def _profile_window() -> int:
+    """매물대 기간(거래일). 허용 값이 아니면 400 (임의 기간으로 계산을 키우지 않는다)."""
+    try:
+        w = int(request.args.get("window", volume_profile.WINDOW))
+    except ValueError:
+        abort(400)
+    if w not in PROFILE_WINDOWS:
+        abort(400)
+    return w
+
+
+@app.get("/api/profile/<code>")
+def profile(code: str):
+    """일봉 범위 기반 추정 매물대 (한국). 완성된 봉만 쓴다."""
+    if code not in {i["code"] for i in load_config()["watchlist"]}:
+        abort(404)
+    try:
+        df = volume_profile.complete_kr_bars(_provider().prices(code))
+    except FileNotFoundError:
+        abort(404)
+    return jsonify(volume_profile.compute(df, window=_profile_window()))
+
+
 def _holdings_value(e) -> dict | None:
     """보유 종목별 평가액(원). 토스 미연결/실패면 None(비중을 모른다고 표시)."""
     if not e.gw.configured():
@@ -422,6 +448,18 @@ def us_overview():
 def us_stocks():
     """미국 스윙 후보(관심 종목)의 지표. 판정은 하지 않고 사실값과 주의 표시만 준다."""
     return jsonify({"stocks": usmarket.stocks_overview(), "status": usmarket.status, "max": usmarket.MAX_WATCH})
+
+
+@app.get("/api/us/profile/<symbol>")
+def us_profile(symbol: str):
+    """일봉 범위 기반 추정 매물대 (미국). 저장된 시세는 수집 때 이미 완성된 봉만 남긴다."""
+    if symbol not in usmarket.watch_symbols() and symbol not in usmarket.MARKET:
+        abort(404)
+    w = _profile_window()
+    df = usmarket.read_for_profile(symbol)
+    if df.empty:
+        abort(404)
+    return jsonify(volume_profile.compute(df, window=w))
 
 
 @app.get("/api/us/series/<symbol>")

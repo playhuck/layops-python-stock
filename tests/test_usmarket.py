@@ -179,6 +179,19 @@ def test_us_api_strict_json_guard_and_flow(monkeypatch):
     assert c.delete("/api/us/watchlist/AAA", headers=h).status_code == 200 and c.delete("/api/us/watchlist/AAA", headers=h).status_code == 404
 
 
+def test_us_profile_api(monkeypatch):
+    from stockwatch.web import app
+    c = app.test_client()
+    strict = lambda r: json.loads(r.data, parse_constant=lambda x: (_ for _ in ()).throw(ValueError(x)))
+    usmarket.add_watch("AAA", "A")
+    assert c.get("/api/us/profile/AAA").status_code == 404                   # 시세 없음
+    marketdb.upsert_prices("AAA", bars(130))
+    body = strict(c.get("/api/us/profile/AAA?window=60"))
+    assert body["ok"] and body["meta"]["window"] == 60 and body["meta"]["bars_used"] == 60
+    assert c.get("/api/us/profile/AAA?window=61").status_code == 400
+    assert c.get("/api/us/profile/ZZZ").status_code == 404
+
+
 def test_us_discover_marks_added_and_handles_failure(monkeypatch):
     from stockwatch.web import app
     c = app.test_client()

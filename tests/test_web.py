@@ -24,6 +24,16 @@ def test_series_rejects_unknown_code():
     assert c.get("/api/series/999999").status_code == 404
 
 
+def test_profile_api_strict_json_and_validation():
+    strict = lambda r: json.loads(r.data, parse_constant=lambda x: (_ for _ in ()).throw(ValueError(x)))
+    body = strict(c.get("/api/profile/005930"))
+    assert body["ok"] and body["meta"]["window"] == 120 and body["meta"]["bars_used"] >= 40 and len(body["bins"]) == 24
+    assert strict(c.get("/api/profile/005930?window=60"))["meta"]["window"] == 60
+    assert c.get("/api/profile/005930?window=7").status_code == 400          # 허용 기간(60/120/250)만
+    assert c.get("/api/profile/005930?window=abc").status_code == 400
+    assert c.get("/api/profile/999999").status_code == 404
+
+
 def test_refresh_conflict_when_running():
     from stockwatch import collector
     collector.status["running"] = True

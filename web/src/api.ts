@@ -1,4 +1,4 @@
-import type { Dashboard, Row, Status } from "./types";
+import type { Dashboard, Row, Status, VolumeProfile } from "./types";
 
 async function get<T>(url: string): Promise<T> {
   const r = await fetch(url);
@@ -9,6 +9,7 @@ async function get<T>(url: string): Promise<T> {
 export const fetchDashboard = () => get<Dashboard>("/api/dashboard");
 export const fetchStatus = () => get<Status>("/api/status");
 export const fetchSeries = (code: string) => get<Row[]>(`/api/series/${code}`);
+export const fetchProfile = (code: string, window: number) => get<VolumeProfile>(`/api/profile/${code}?window=${window}`);
 export const startRefresh = () => fetch("/api/refresh", { method: "POST" });
 
 // 상태 변경 요청은 X-Stockwatch 헤더 필수 (서버의 CSRF 방어)
@@ -60,6 +61,7 @@ import type { UsDiscoverHit, UsOverview, UsStocks } from "./types";
 export const fetchUsOverview = () => get<UsOverview>("/api/us/overview");
 export const fetchUsStocks = () => get<UsStocks>("/api/us/stocks");
 export const fetchUsSeries = (symbol: string) => get<Row[]>(`/api/us/series/${encodeURIComponent(symbol)}`);
+export const fetchUsProfile = (symbol: string, window: number) => get<VolumeProfile>(`/api/us/profile/${encodeURIComponent(symbol)}?window=${window}`);
 export const fetchUsDiscover = (minCap: number, maxCap: number) => get<UsDiscoverHit[]>(`/api/us/discover?min_cap=${minCap}&max_cap=${maxCap}`);
 export const addUsStock = (symbol: string, name: string) => send("POST", "/api/us/watchlist", { symbol, name });
 export const removeUsStock = (symbol: string) => send("DELETE", `/api/us/watchlist/${encodeURIComponent(symbol)}`);
