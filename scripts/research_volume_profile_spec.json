@@ -1,0 +1,76 @@
+{
+  "_note": "매물대 독립 표본 사양. 이 파일과 스크립트를 함께 커밋한다. 바꾸려면 새 사양과 새 기준일을 정한다(기존 결과는 탐색으로 취급).",
+  "oos_start": "2026-11-02",
+  "codes": {
+    "005930": {
+      "name": "삼성전자",
+      "market": "STK"
+    },
+    "000660": {
+      "name": "SK하이닉스",
+      "market": "STK"
+    },
+    "222800": {
+      "name": "심텍",
+      "market": "KSQ"
+    },
+    "353200": {
+      "name": "대덕전자",
+      "market": "STK"
+    },
+    "108490": {
+      "name": "로보티즈",
+      "market": "KSQ"
+    },
+    "240810": {
+      "name": "원익IPS",
+      "market": "KSQ"
+    },
+    "277810": {
+      "name": "레인보우로보틱스",
+      "market": "KSQ"
+    },
+    "352820": {
+      "name": "하이브",
+      "market": "STK"
+    },
+    "005380": {
+      "name": "현대차",
+      "market": "STK"
+    }
+  },
+  "profile": {
+    "method_version": 1,
+    "window": 120,
+    "bins": 24,
+    "thickness_multiple": 1.5,
+    "allocation": "range_overlap"
+  },
+  "near_atr": 2.0,
+  "horizon": 10,
+  "min_group": 10,
+  "primary_population": "baseline_entry",
+  "primary_contrast": "near_vs_far_with_zone",
+  "secondary_population": "structural_entry",
+  "no_zone_role": "descriptive",
+  "primary": [
+    "mfe10",
+    "win"
+  ],
+  "classes": [
+    "가까움",
+    "영역 있으나 멂",
+    "위 영역 없음"
+  ],
+  "cfg_sha": "f9bbc7fa9d6e5d13",
+  "files": {
+    "stockwatch/volume_profile.py": "4d364ca6a1185572",
+    "stockwatch/indicators.py": "bb36ed16b709f201",
+    "stockwatch/signals.py": "606f93b625f214c6",
+    "stockwatch/research/baseline.py": "a9b9d778b34bd0cc",
+    "stockwatch/research/profile_events.py": "9229d138b70db2dc",
+    "stockwatch/research/costs.py": "2fff44056a99fe14",
+    "stockwatch/research/engine.py": "b509375633813cb7",
+    "scripts/research_volume_profile.py": "574c48a021c541e5"
+  }
+}
