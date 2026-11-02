@@ -62,6 +62,7 @@ export default function UsPage({ onToast }: { onToast: (m: string) => void }) {
 
       <section className="card">
         <h2 style={{ margin: "0 0 4px" }}>스윙 후보 <small>({st.stocks.length}/{st.max})</small></h2>
+        <AddTicker disabled={st.stocks.length >= st.max} onAdded={(sym) => { onToast(`${sym}을(를) 추가했어요`); load(); }} onToast={onToast} />
         {st.stocks.length === 0 ? <p className="empty">관심 종목이 없어요. "후보 찾기"로 나스닥 소형·중형주를 추가해 보세요.</p> : (
           <div className="tbl-wrap">
             <table className="tbl">
@@ -225,5 +226,26 @@ function Holdings({ jd, jdErr, onChanged, onToast }: { jd: UsJudgment | null; jd
         );
       })}
     </section>
+  );
+}
+
+/** 후보 찾기에 안 나오는 종목(거래량 순위 밖 등)을 티커로 직접 추가: 서버가 야후에서 시세가 오는 티커인지 확인한 뒤 추가한다 */
+function AddTicker({ disabled, onAdded, onToast }: { disabled: boolean; onAdded: (symbol: string) => void; onToast: (m: string) => void }) {
+  const [sym, setSym] = useState("");
+  const [busy, setBusy] = useState(false);
+  const submit = async (e: { preventDefault: () => void }) => {
+    e.preventDefault();
+    const symbol = sym.trim().toUpperCase();
+    if (!symbol) return;
+    setBusy(true);
+    try { await addUsStock(symbol, ""); setSym(""); onAdded(symbol); } catch (err) { onToast((err as Error).message); }
+    setBusy(false);
+  };
+  return (
+    <form className="us-form" onSubmit={submit} style={{ margin: "6px 0 10px" }}>
+      <label>티커로 추가<input className="input sm" value={sym} onChange={(e) => setSym(e.target.value)} placeholder="SYM" maxLength={5} aria-label="추가할 티커" /></label>
+      <button className="add" type="submit" disabled={busy || disabled || !sym.trim()}>{busy ? "찾는 중…" : "찾아서 추가"}</button>
+      <small className="muted">후보 찾기에 안 나오는 종목도 티커를 입력하면 야후에서 찾아 추가해요 (시세가 오는 티커만 추가돼요)</small>
+    </form>
   );
 }

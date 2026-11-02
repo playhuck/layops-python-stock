@@ -255,3 +255,15 @@ def test_api_entry_atr_roundtrip_and_judgment_uses_the_fixed_value(offline):
     assert sell["levels"]["entry_atr"] == 2.0 and sell["levels"]["stop"] == pytest.approx(130 - 2.0 * 2.0)
     assert any(e["label"] == "진입 ATR" and "직접 입력" in e["value"] for e in sell["evidence"])
     assert c.put("/api/us/positions/AAA", json={"qty": 2, "avg_price": 130, "entry_atr": -1}, headers=H).status_code == 400
+
+
+def test_api_add_by_typed_ticker_normalizes_names_it_by_symbol_and_explains_failures(offline):
+    from stockwatch.web import app
+    c = app.test_client()
+    r = c.post("/api/us/watchlist", json={"symbol": " aaa ", "name": ""}, headers=H)             # 화면이 보내는 형태: 공백·소문자, 이름 없음
+    assert r.status_code == 200 and usmarket.watch_list() == [{"symbol": "AAA", "name": "AAA"}]
+    dup = c.post("/api/us/watchlist", json={"symbol": "AAA", "name": ""}, headers=H)
+    assert dup.status_code == 400 and "이미 관심 종목" in strict(dup)["error"]
+    nope = c.post("/api/us/watchlist", json={"symbol": "nopex", "name": ""}, headers=H)
+    assert nope.status_code == 400 and "야후에서 시세를 가져오지 못했어요" in strict(nope)["error"]
+    assert usmarket.watch_symbols() == ["AAA"]                                                    # 실패한 티커는 남지 않는다
