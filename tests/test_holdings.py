@@ -133,3 +133,42 @@ def test_import_without_toss_configuration_is_reported(api, monkeypatch):
     c.put("/api/holdings/source", json={"source": "import"}, headers=H)
     v = get(c)
     assert v["kr"] == {"configured": False, "known": False, "items": {}} and toss.calls == 0
+
+
+# -- 한국 보유의 추가 매수 의견 API -----------------------------------------------------------------------
+def seed_kr_prices(code="005930", n=260):
+    import numpy as np
+    import pandas as pd
+    idx = pd.bdate_range(end=pd.Timestamp.now().normalize() - pd.Timedelta(days=3), periods=n)          # 완성된 봉(오늘 이전)만
+    t = np.arange(n)
+    close = (100_000 * (1 + 0.002 * t) + 2_500 * np.sin(t / 3)).round()
+    marketdb.upsert_prices(code, pd.DataFrame({"open": close * 0.998, "high": close * 1.01, "low": close * 0.99, "close": close, "volume": 1e6}, index=idx))
+    return float(close[-1])
+
+
+def test_kr_add_opinion_api_uses_the_selected_source_and_never_writes(api):
+    c, toss = api
+    last = seed_kr_prices()
+    assert c.get("/api/kr/add-opinion/005930").status_code == 404                                       # 보유 없음
+    holdings.kr_register("005930", 10, last * 0.97)
+    r = c.get("/api/kr/add-opinion/005930")
+    body = json.loads(r.data, parse_constant=lambda x: (_ for _ in ()).throw(ValueError(x)))             # NaN 이 섞이면 실패
+    assert r.status_code == 200 and body["label"] and body["evidence"][0]["label"] == "내 위치" and toss.calls == 0      # 직접 입력 모드는 토스를 부르지 않는다
+    assert db.get().execute("SELECT COUNT(*) AS n FROM proposals").fetchone()["n"] == 0                  # 제안을 만들지 않는다
+    assert c.get("/api/kr/add-opinion/000000").status_code == 404
+
+
+def test_kr_add_opinion_api_in_import_mode_uses_toss_holdings_only(api):
+    c, toss = api
+    seed_kr_prices("000660")
+    holdings.kr_register("000660", 99, 1.0)                                                              # 직접 입력 값은 가져오기 모드에서 쓰이지 않는다
+    c.put("/api/holdings/source", json={"source": "import"}, headers=H)
+    assert c.get("/api/kr/add-opinion/000660").status_code == 404                                        # 토스 보유(005930)에는 이 종목이 없다
+    toss.items = [{"symbol": "000660", "quantity": "4", "averagePurchasePrice": "100000", "lastPrice": "100000"}]
+    from stockwatch.trading import service
+    service._gateway.invalidate()
+    r = c.get("/api/kr/add-opinion/000660")
+    assert r.status_code == 200 and "4주" in " ".join(x["label"] for x in r.get_json()["evidence"])
+    toss.fail = True
+    service._gateway.invalidate()
+    assert c.get("/api/kr/add-opinion/000660").status_code == 503                                        # 가져오기 실패는 '모름'

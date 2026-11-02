@@ -17,6 +17,7 @@ import pandas as pd
 
 from . import indicators as ind
 from . import volume_profile
+from .add_opinion import add_opinion  # noqa: F401  (보유 종목 추가 매수 의견은 한국과 공용이라 add_opinion.py 에 있다)
 
 RULES_VERSION = 1
 ET = ZoneInfo("America/New_York")

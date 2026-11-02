@@ -303,3 +303,125 @@ def test_split_suspicion_warning():
     since = uj.sell_review(df, {"qty": 1, "avg_price": 105.0, "opened_on": df.index[-30].date()}, mkt=GOOD_MKT, today=TODAY)
     assert since["warnings"] and "시세 범위" in since["warnings"][0]                  # 보유 기간만 본다: 그 기간 저가보다 훨씬 낮은 평단
     assert review()["warnings"] == [] and uj.buy_review(None)["warnings"] == []
+
+
+# -- 추가 매수(물타기·불타기) 의견 ------------------------------------------------------------------------
+def ctx(df=None, avg=0.95, qty=10, buy_kw=None, **sell_kw):
+    """같은 종목의 buy/sell 리뷰와 포지션. avg 는 마지막 종가 대비 비율."""
+    df = frame() if df is None else df
+    price = float(df["close"].iloc[-1])
+    position = {"qty": qty, "avg_price": avg * price, "opened_on": None, "entry_atr": 2.5, "tracked_from": date(2026, 9, 1)}
+    kw = {"mkt": GOOD_MKT, "bench": bench(), "today": TODAY, "meta": KNOWN, **(buy_kw or {})}
+    buy = uj.buy_review(df, **kw)
+    sell = uj.sell_review(df, position, **{"mkt": GOOD_MKT, "today": TODAY, "meta": KNOWN, **sell_kw})
+    return buy, sell, position
+
+
+def test_add_opinion_pyramid_when_winning_and_the_entry_conditions_hold_again():
+    buy, sell, pos = ctx(avg=0.97)
+    assert buy["verdict"]["code"] == "review" and sell["verdict"]["code"] == "hold"
+    r = uj.add_opinion(buy, sell, pos)
+    assert r["code"] == "pyramid" and r["label"] == "불타기 검토" and "눌림" in r["reason"] and r["note"]
+
+
+def test_add_opinion_avg_down_only_when_below_average_and_conditions_hold():
+    df = frame()
+    price = float(df["close"].iloc[-1])
+    buy, sell, pos = ctx(df, avg=1.02)                                             # 평단이 현재가보다 2% 높다 = 손실 중
+    assert sell["verdict"]["code"] == "hold"
+    r = uj.add_opinion(buy, sell, pos)
+    assert r["code"] == "avg_down" and r["label"] == "물타기 검토" and pos["avg_price"] > price
+    assert "새 평단" in r["reason"]
+
+
+def test_add_opinion_refuses_when_a_sell_signal_exists():
+    buy, sell, pos = ctx(avg=1.4)                                                  # 손절선 아래
+    assert sell["verdict"]["code"] == "sell"
+    r = uj.add_opinion(buy, sell, pos)
+    assert r["code"] == "avoid" and "매도 검토" in r["reason"]
+
+
+def test_add_opinion_refuses_near_the_stop_line_even_if_buy_conditions_hold():
+    df = frame()
+    price = float(df["close"].iloc[-1])
+    buy, sell, pos = ctx(df, avg=1.0)
+    stop = sell["levels"]["stop"]
+    pos2 = {**pos, "avg_price": price + (price - stop) * 0.0 + 0.0}                 # 평단 = 현재가
+    sell2 = {**sell, "levels": {**sell["levels"], "stop": price - 0.3 * sell["levels"]["entry_atr"]}}      # 손절선이 0.3 ATR 아래로 가까움
+    sell2["verdict"] = sell["verdict"]
+    r = uj.add_opinion(buy, sell2, pos2)
+    assert buy["verdict"]["code"] == "review" and r["code"] == "avoid" and "0.3 ATR" in r["reason"]
+
+
+def test_add_opinion_holds_back_when_data_or_conditions_do_not_allow_it():
+    for kw in ({"meta": {"next_earnings": date(2026, 11, 3)}},):                   # 실적 임박 = 위험 구간
+        buy, sell, pos = ctx(avg=0.97, buy_kw=kw)
+        r = uj.add_opinion(buy, sell, pos)
+        assert buy["verdict"]["code"] == "blocked" and r["code"] == "hold" and "위험 조건" in r["reason"] and "눌림 구간에서만" not in r["reason"]   # 위험 구간이라는 이유만 전한다(조건 미충족 안내를 덧붙이지 않는다)
+    buy, sell, pos = ctx(avg=0.97, buy_kw={"mkt": {"ok": False, "text": "VIX 31.0"}})        # 시장 환경 악화 → 신규 매수 조건 미충족
+    r = uj.add_opinion(buy, sell, pos)
+    assert buy["verdict"]["code"] == "watch" and r["code"] == "hold" and "조건이 1개 맞지 않아요" in r["reason"] and "불타기" in r["reason"]
+    buy, sell, pos = ctx(frame(step=-0.3, start=170.0), avg=1.1)                    # 하락 추세 + 손실 중
+    r = uj.add_opinion(buy, sell, pos)
+    assert r["code"] in {"hold", "avoid"} and r["code"] != "avg_down"
+
+
+def test_add_opinion_stale_sell_review_is_a_hold():
+    old = frame(end="2026-10-01")
+    buy, sell, pos = ctx(old, avg=0.97)
+    assert sell["verdict"]["code"] == "na"
+    r = uj.add_opinion(buy, sell, pos)
+    assert r["code"] == "hold" and "29일 전" in r["reason"]                                 # 오래된 시세라는 이유(매도 검토의 사유)를 전한다
+
+
+def test_add_opinion_simulation_numbers():
+    buy, sell, pos = ctx(avg=1.05)
+    r = uj.add_opinion(buy, sell, pos)
+    price, avg, qty, stop = sell["price"], pos["avg_price"], pos["qty"], sell["levels"]["stop"]
+    sims = [e for e in r["evidence"] if e["label"].startswith("시뮬레이션")]
+    assert len(sims) == 2 and all(e.get("kind") == "info" for e in sims)
+    new_avg = (qty * avg + qty * price) / (2 * qty)                                 # 100% 추가
+    assert f"${new_avg:,.2f}" in sims[1]["value"] and f"{(new_avg / avg - 1) * 100:+.1f}%" in sims[1]["value"]
+    assert f"${max(avg - stop, 0) * qty:,.0f} → ${max(new_avg - stop, 0) * 2 * qty:,.0f}" in sims[1]["value"]
+    assert r["evidence"][0]["label"] == "내 위치" and "손실 중" in r["evidence"][0]["value"]
+
+
+def test_add_opinion_does_not_mutate_inputs_and_keeps_the_buy_evidence():
+    buy, sell, pos = ctx(avg=0.97)
+    snapshot = (list(buy["evidence"]), dict(pos))
+    r = uj.add_opinion(buy, sell, pos)
+    assert (buy["evidence"], pos) == snapshot
+    labels = [e["label"] for e in r["evidence"]]
+    assert all(e["label"] in labels for e in buy["evidence"])                       # 신규 매수 조건 근거가 그대로 붙는다
+
+
+def test_add_opinion_holds_back_when_the_earnings_date_is_unknown():
+    buy, sell, pos = ctx(avg=0.97, buy_kw={"meta": {}})
+    assert buy["verdict"]["code"] == "review_check"                                                  # 매수 쪽은 '실적일 확인 필요'로 구분되지만
+    for avg in (0.97, 1.02):                                                                          # 추가 매수 의견은 갭 위험을 모르면 내지 않는다(불타기·물타기 모두)
+        buy, sell, pos = ctx(avg=avg, buy_kw={"meta": {}})
+        r = uj.add_opinion(buy, sell, pos)
+        assert r["code"] == "hold" and "실적일" in r["reason"] and "보류" in r["reason"]
+
+
+def test_add_opinion_states_the_basis_date_and_does_not_call_the_close_a_live_price():
+    buy, sell, pos = ctx(avg=1.02)
+    r = uj.add_opinion(buy, sell, pos, as_of=sell["as_of"])
+    assert r["as_of"] == sell["as_of"] == "2026-10-29"
+    row = next(e for e in r["evidence"] if e["label"] == "판단 기준")
+    assert "2026-10-29 종가" in row["value"] and "장중 현재가가 아니에요" in row["threshold"]
+    own = [e for e in r["evidence"] if e["label"].startswith(("내 위치", "판단 기준", "시뮬레이션"))]                  # 이 의견이 직접 만든 행(신규 매수 근거는 원래 종가 기준)
+    text = " ".join(e["label"] + " " + e["value"] + " " + e["threshold"] for e in own) + r["note"] + r["reason"]
+    text = text.replace("장중 현재가가 아니에요", "")                                                          # 현재가가 아니라는 안내 문구는 허용
+    assert len(own) == 4 and "지금 가격" not in text and "현재가" not in text and "최대 손실" not in text
+    sims = [e for e in r["evidence"] if e["label"].startswith("시뮬레이션")]
+    assert all("2026-10-29 종가에 추가한다고 가정" in e["label"] and "도달 시 예상손실" in e["value"] and "갭" in e["threshold"] for e in sims)
+    assert uj.add_opinion(buy, sell, pos)["as_of"] is None and not any(e["label"] == "판단 기준" for e in uj.add_opinion(buy, sell, pos)["evidence"])
+
+
+def test_add_opinion_reason_uses_the_markets_own_condition_names():
+    buy, sell, pos = ctx(avg=0.97)
+    assert "상대강도" in uj.add_opinion(buy, sell, pos)["reason"]                                      # 미국 기본
+    from stockwatch import add_opinion as ao
+    r = ao.add_opinion(buy, sell, pos, conds=ao.KR_CONDS)
+    assert "매수 점수" in r["reason"] and "상대강도" not in r["reason"]

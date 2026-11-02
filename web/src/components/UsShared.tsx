@@ -1,5 +1,6 @@
 import { pct, signed } from "../format";
-import type { UsKrw, UsVerdict } from "../types";
+import type { UsAdd, UsKrw, UsVerdict } from "../types";
+import Evidence from "./Evidence";
 
 export const cls = (v: number | null | undefined) => (v == null ? "" : v >= 0 ? "pos" : "neg");
 // 판정 → 칩 색: 매수 검토=빨강, 매도 검토=파랑, 주의·실적일 확인 필요=주황, 나머지는 회색 (한국 화면과 같은 색 약속)
@@ -18,3 +19,18 @@ export function KrwInline({ k }: { k: UsKrw | null | undefined }) {
 const fxText = (n: number | null | undefined) => (n == null ? "-" : n.toLocaleString("ko-KR", { maximumFractionDigits: 1 }));
 export const krwBreakdown = (k: UsKrw): string =>
   `원화 환산: 매수 환율 ${fxText(k.fx_buy)}원 → 현재 ${fxText(k.fx_now)}원(${k.fx_as_of ?? "-"} 기준, ${pct(k.fx_pct)}) · 주가 ${pct(k.price_pct)} · 환율 ${pct(k.fx_pct)} → 원화 ${pct(k.pnl_pct)} · 수수료·세금·환전 수수료 제외`;
+
+// 추가 매수 의견 칩: 불타기 검토=빨강, 물타기 검토=주황, 보류=회색, 비권장=파랑
+const ADD_CHIP: Record<string, string> = { pyramid: "buy", avg_down: "split", hold: "wait", avoid: "sell" };
+
+/** '제안Plus+' 패널: 물타기·불타기 의견과 이유(내 위치, 추가 매수 시뮬레이션, 신규 매수와 같은 조건의 근거) */
+export function AddOpinionPanel({ a }: { a: UsAdd }) {
+  return (
+    <div className="add-op">
+      <div><span className={`chip ${ADD_CHIP[a.code] ?? "wait"}`}>{a.label}</span> <small className="muted">추가 매수 검토 · {a.as_of ? `${a.as_of} 종가 기준(장중 가격 아님) · ` : ""}참고용 · 검증 전 규칙 · 주문 없음</small></div>
+      <p className="us-reason" style={{ margin: "6px 0 2px", color: "var(--fg)" }}>{a.reason}</p>
+      <Evidence items={a.evidence} />
+      <small className="muted" style={{ display: "block", marginTop: 6 }}>{a.note}</small>
+    </div>
+  );
+}

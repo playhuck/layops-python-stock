@@ -72,10 +72,11 @@ def judgments() -> dict:
     for w in usmarket.watch_list():
         sym = w["symbol"]
         df, meta = _read_or_none(sym), usmarket.read_meta(sym)
-        row = {"symbol": sym, "name": w["name"], "buy": uj.buy_review(df, meta, mkt, bench), "position": None, "sell": None, "krw": None}
+        row = {"symbol": sym, "name": w["name"], "buy": uj.buy_review(df, meta, mkt, bench), "position": None, "sell": None, "krw": None, "add": None}
         if sym in held:
             row["position"] = _position_json(held[sym])
             row["sell"] = uj.sell_review(df, held[sym], meta, mkt)
             row["krw"] = krw_view(row["sell"]["price"], held[sym], fx)
+            row["add"] = uj.add_opinion(row["buy"], row["sell"], held[sym], as_of=row["sell"]["as_of"])         # 물타기·불타기 의견(참고용, 주문 없음)
         stocks.append(row)
     return {"market": mkt, "fx": fx, "stocks": stocks, "note": uj.NOTE, "rules_version": uj.RULES_VERSION}

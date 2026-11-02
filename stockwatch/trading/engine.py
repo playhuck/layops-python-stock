@@ -13,7 +13,7 @@ from datetime import date, datetime, timedelta
 
 import pandas as pd
 
-from .. import config, indicators as ind, sectors, volume_profile
+from .. import add_opinion as add_op, config, indicators as ind, sectors, volume_profile
 from ..envfile import env
 from ..signals import analyze
 from . import risk
@@ -375,7 +375,46 @@ class Engine:
             self.notify(f"매수 제안: {it['name']}", f"승인 대기 중 · 근거 {ok}/{total} 충족{' · 모의' if it['dry_run'] else ''}")
 
     # -- 매도: 하나라도 걸리면 (과감) ------------------------------------------------------------
-    def _sell_checks(self, code, name, res, d, held, ref, atr) -> dict:
+    # 신규 매수 근거 중 '진행 중인 주문·킬스위치·거절 이력' 같은 거래 절차 항목은 보유 종목의 추가 매수 의견에는 의미가 없어 뺀다
+    _PROCESS_CHECKS = ("보유 현황 확인됨(중복 매수 방지)", "진행 중 매수 주문 없음", "킬스위치 해제 상태", "오늘 거절한 제안 아님")
+
+    ADD_STALE_DAYS = 7          # 마지막 완성 봉이 이보다 오래되면 추가 매수 의견을 보류한다 (한국 연휴가 길어 미국(5일)보다 여유를 둔다)
+
+    def add_review(self, code: str, qty: int, avg: float, today: date | None = None) -> dict:
+        """보유 종목의 추가 매수(물타기·불타기) 의견 — 화면 참고용. 읽기 전용: 제안·주문·저장을 만들지 않고 토스도 부르지 않는다(최근 종가 기준).
+        신규 매수와 같은 신호 조건과 매도 검토 근거를 add_opinion 에 넘겨 위험 우선으로 판단한다."""
+        item = next((i for i in self.cfg["watchlist"] if i["code"] == code), None)
+        if item is None:
+            raise KeyError(code)
+        pos = {"qty": int(qty), "avg_price": float(avg)}
+
+        def unavailable(reason: str) -> dict:
+            v = {"code": "na", "reason": reason}
+            return add_op.add_opinion({"verdict": v, "evidence": [], "unmet": 0}, {"verdict": v, "price": None, "levels": {}}, pos, cur="krw")
+        try:
+            df, vix = self.prov.prices(code), self.prov.vix()
+            res = analyze(code, item["name"], df, self.prov.flows(code), vix, self.cfg.get("thresholds"))
+        except (FileNotFoundError, ValueError) as e:
+            return unavailable(str(e))
+        d = ind.add_all(df); last = d.iloc[-1]
+        atr, ref = float(last["atr"]), float(last["close"])
+        if not (math.isfinite(atr) and math.isfinite(ref) and ref > 0 and atr > 0):
+            return unavailable("가격/ATR 을 계산할 수 없어요")
+        as_of = d.index[-1].date()
+        age = ((today or date.today()) - as_of).days
+        if age > self.ADD_STALE_DAYS:                       # 오래된 종가로는 의견을 내지 않는다 (시세 수집이 멈췄을 수 있다)
+            return unavailable(f"시세가 {age}일 전({as_of}) 기준이라 추가 매수 의견을 낼 수 없어요. 시세를 갱신해 주세요")
+        sell_ev, info = self._sell_evidence(code, res, d, {"qty": int(qty), "avg": float(avg)}, ref, atr)
+        signals = [e for e in self._buy_base(item, res, d, ref, atr, vix) if e["label"] not in self._PROCESS_CHECKS]
+        unmet = sum(not e["passed"] for e in signals)
+        hit = [e["label"] for e in sell_ev if e["passed"]]
+        buy = {"verdict": {"code": "review" if unmet == 0 else "watch", "reason": None}, "evidence": signals, "unmet": unmet}
+        sell = {"verdict": {"code": "sell" if hit else "hold", "reason": ("해당: " + ", ".join(hit)) if hit else None}, "price": ref,
+                "levels": {"stop": info["stop"], "entry_atr": info["basis_atr"] if info["fixed"] else None, "atr": atr}}
+        return add_op.add_opinion(buy, sell, pos, cur="krw", as_of=as_of.isoformat(), conds=add_op.KR_CONDS)
+
+    def _sell_evidence(self, code, res, d, held, ref, atr) -> tuple[list[dict], dict]:
+        """매도 근거 6개와 손절선 정보. 읽기 전용(제안·저장 없음)이라 매도 검토와 추가 매수 의견이 함께 쓴다."""
         t, last = self.t, d.iloc[-1]
         stop_k, target_k, trail_k = self._levels(code)
         avg = held["avg"]; hi20 = float(d["close"].tail(20).max())
@@ -392,6 +431,11 @@ class Engine:
             chk("RSI 과매수", last["rsi"] >= 70, f"{last['rsi']:.0f}", ">= 70"),
             chk("목표가 도달(진입가+ATR배수)", ref >= avg + target_k * basis_atr, f"현재 {ref:,.0f} / 목표 {avg + target_k * basis_atr:,.0f}", f"ATR×{target_k} · {fixed_note}"),
         ]
+        return ev, {"stop": avg - stop_k * basis_atr, "basis_atr": basis_atr, "fixed": bool(basis["ok"]), "atr": atr}
+
+    def _sell_checks(self, code, name, res, d, held, ref, atr) -> dict:
+        ev, _ = self._sell_evidence(code, res, d, held, ref, atr)
+        avg = held["avg"]
         triggered = any(e["passed"] for e in ev) and not self.store.in_flight(code, "SELL")
         pid = None
         if triggered:

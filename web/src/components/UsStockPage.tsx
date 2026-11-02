@@ -6,7 +6,7 @@ import ChartCard from "./ChartCard";
 import Evidence from "./Evidence";
 import { SourceToggle } from "./Holdings";
 import UsHoldingForm, { HOLD_EMPTY, holdBody, holdFormFrom, type HoldForm } from "./UsHoldingForm";
-import { cls, krwBreakdown, px2, Verdict } from "./UsShared";
+import { AddOpinionPanel, cls, krwBreakdown, px2, Verdict } from "./UsShared";
 
 /** 미국 종목 상세(홈 > 미국 탭에서 연다): 지표 요약, 매수 검토 근거, 내 보유 한 줄, 차트(내 평단선) */
 export default function UsStockPage({ symbol, holdings, onSource, onHoldings, onBack, onToast, onRemoved }: { symbol: string; holdings: HoldingsView | null; onSource: (s: HoldingsSource) => void; onHoldings: () => void; onBack: () => void; onToast: (m: string) => void; onRemoved: () => void }) {
@@ -81,7 +81,8 @@ function UsMyHolding({ symbol, mine, source, onSource, onChanged, onToast }: { s
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [del, setDel] = useState(false);
-  const p = mine?.position, sell = mine?.sell, krw = mine?.krw;
+  const [adviceOpen, setAdviceOpen] = useState(false);
+  const p = mine?.position, sell = mine?.sell, krw = mine?.krw, advice = mine?.add;
   const start = () => { setF(p ? holdFormFrom(p) : { ...HOLD_EMPTY, symbol }); setEditing(true); };
   const save = async (e: { preventDefault: () => void }) => {
     e.preventDefault(); setBusy(true);
@@ -95,7 +96,7 @@ function UsMyHolding({ symbol, mine, source, onSource, onChanged, onToast }: { s
   };
   return (
     <section className="card">
-      <div className="toolbar"><h2 style={{ margin: 0 }}>내 보유</h2><SourceToggle source={source} onChange={onSource} /></div>
+      <div className="toolbar"><h2 style={{ margin: 0 }}>내 보유 {source === "manual" && advice && <button className="add" style={{ marginLeft: 8, fontSize: 12 }} onClick={() => setAdviceOpen((v) => !v)} aria-expanded={adviceOpen} title="물타기·불타기 의견과 이유">제안Plus+</button>}</h2><SourceToggle source={source} onChange={onSource} /></div>
       {source === "import" ? <p className="empty" style={{ margin: "8px 0 0" }}>미국 종목은 토스에서 가져오기를 지원하지 않아요. 직접 입력한 보유를 보려면 위에서 "직접 입력"을 선택하세요.</p> : <>
         {p && sell && (
           <>
@@ -111,6 +112,7 @@ function UsMyHolding({ symbol, mine, source, onSource, onChanged, onToast }: { s
             <small className="muted">{sell.verdict.reason ?? ""}{p.entry_atr != null ? ` · 진입 ATR $${px2(p.entry_atr)}` : ""}{p.opened_on ? ` · 매수일 ${p.opened_on}` : ""}{p.note ? ` · ${p.note}` : ""} · 차트의 주황 점선이 내 평단이에요</small>
           </>
         )}
+        {adviceOpen && advice && <AddOpinionPanel a={advice} />}
         {!editing && (
           <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
             {!p && <small className="muted">직접 입력한 보유가 없어요.</small>}

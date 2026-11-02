@@ -5,7 +5,7 @@ import type { HoldingsSource, HoldingsView, UsJudgment, UsJudgmentStock, UsOverv
 import Evidence from "./Evidence";
 import { SourceToggle } from "./Holdings";
 import UsHoldingForm, { HOLD_EMPTY, holdBody, holdFormFrom } from "./UsHoldingForm";
-import { cls, KrwInline, krwBreakdown, px2, Verdict } from "./UsShared";
+import { AddOpinionPanel, cls, KrwInline, krwBreakdown, px2, Verdict } from "./UsShared";
 import UsStrip from "./UsStrip";
 
 /** 미국 탭: 시장 지표와 내 보유 종목(매도 검토). 관심 종목 목록·추가·상세는 홈 > 미국 탭으로 옮겼다 */
@@ -57,6 +57,7 @@ function Holdings({ jd, jdErr, source, onSource, onChanged, onToast }: { jd: UsJ
   const [f, setF] = useState(HOLD_EMPTY);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
+  const [advice, setAdvice] = useState<string | null>(null);         // 제안Plus+을 펼친 종목
   const [del, setDel] = useState<string | null>(null);
   const held = (jd?.stocks ?? []).filter((s): s is UsJudgmentStock & { position: NonNullable<UsJudgmentStock["position"]>; sell: UsReview } => !!s.position && !!s.sell);
   const submit = async (e: { preventDefault: () => void }) => {
@@ -93,12 +94,14 @@ function Holdings({ jd, jdErr, source, onSource, onChanged, onToast }: { jd: UsJ
               <b>{s.symbol}</b> <small className="muted">{s.name}</small> <Verdict v={r.verdict} />
               <span className="sub">{p.qty}주 @ {px2(p.avg_price)} · 현재 {px2(r.price)} · <span className={cls(r.pnl_pct)}>{pct(r.pnl_pct)}</span>{p.entry_atr != null && <> · 진입 ATR ${px2(p.entry_atr)}{p.entry_atr_source ? ` (${ATR_SRC[p.entry_atr_source]})` : ""}</>}<KrwInline k={s.krw} /></span>
               <span className="btns" onClick={(e) => e.stopPropagation()}>
+                {s.add && <button className="add" onClick={() => setAdvice(advice === s.symbol ? null : s.symbol)} aria-expanded={advice === s.symbol} title="물타기·불타기 의견과 이유">제안Plus+</button>}
                 <button className="add" onClick={() => edit(p)}>수정</button>
                 <button className="add" onClick={() => remove(s.symbol)}>{del === s.symbol ? "정말 지우기" : "삭제"}</button>
               </span>
             </div>
             {r.verdict.reason && <p className="us-reason">{r.verdict.reason}</p>}
             {r.warnings.map((w) => <p key={w} className="notice" style={{ margin: "6px 0 0" }}>⚠ {w}</p>)}
+            {advice === s.symbol && s.add && <AddOpinionPanel a={s.add} />}
             {open === s.symbol && (
               <>
                 {s.krw?.available && <p className="us-levels" style={{ marginTop: 6 }}>{krwBreakdown(s.krw)}</p>}

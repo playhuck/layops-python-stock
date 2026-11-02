@@ -480,3 +480,112 @@ def test_entry_basis_after_a_negative_stretch_is_rebalanced_to_zero_a_new_positi
     ins("BUY", 10, b)                                                                                # 그 뒤의 새 포지션은 이 제안만 본다
     got = basis(store, qty=10)
     assert got["ok"] and got["atr"] == 7000.0 and got["proposal_id"] == b
+
+
+# -- 보유 종목 추가 매수(물타기·불타기) 의견: 읽기 전용 ------------------------------------------------
+KR_TODAY = date(2026, 10, 29)                  # FakeProvider 의 마지막 봉(2026-10-28)이 최신이라고 보는 기준일 (실제 오늘 날짜에 의존하지 않게 고정)
+
+
+def ar(e, qty, avg, today=KR_TODAY):
+    return e.add_review(CODE, qty, avg, today=today)
+
+
+def last_close(e):
+    return float(e.prov.df["close"].iloc[-1])
+
+
+def calm_provider():
+    """마지막 봉이 20일선 바로 위인 시세(20일선 이탈 같은 매도 신호가 없는 상태)."""
+    prov = FakeProvider()
+    df = prov.df.copy()
+    ma20 = float(df["close"].rolling(20).mean().iloc[-1])
+    c = df.columns.get_loc("close")
+    df.iloc[-1, c] = ma20 * 1.01
+    df.iloc[-1, df.columns.get_loc("high")] = max(df.iloc[-1]["high"], ma20 * 1.012)
+    df.iloc[-1, df.columns.get_loc("low")] = min(df.iloc[-1]["low"], ma20 * 1.008)
+    prov.df = df
+    return prov
+
+
+def labels_of(r):
+    return [x["label"] for x in r["evidence"]]
+
+
+def test_add_review_is_read_only_and_excludes_trading_process_checks(env):
+    e, store, fake = make(env, prov=calm_provider())
+    before = (len(store.proposals(limit=1000)), store.get("last_screen"), fake.orders[:], store.db.execute("SELECT COUNT(*) AS n FROM ledger").fetchone()["n"])
+    r = ar(e, 10, last_close(e) * 0.97)
+    assert r["code"] in {"pyramid", "avg_down", "hold", "avoid"} and r["label"] and r["note"]
+    assert (len(store.proposals(limit=1000)), store.get("last_screen"), fake.orders[:], store.db.execute("SELECT COUNT(*) AS n FROM ledger").fetchone()["n"]) == before
+    for process in ("보유 현황 확인됨(중복 매수 방지)", "진행 중 매수 주문 없음", "킬스위치 해제 상태", "오늘 거절한 제안 아님"):
+        assert process not in labels_of(r)                                                       # 거래 절차 항목은 의견의 근거가 아니다
+    assert "매수 점수" in labels_of(r) and labels_of(r)[0] == "내 위치"
+    sims = [x for x in r["evidence"] if x["label"].startswith("시뮬레이션")]
+    assert len(sims) == 2 and all("원" in x["value"] for x in sims)                               # 원화 표기
+
+
+def test_add_review_distinguishes_winning_losing_and_breached_positions(env):
+    e, store, fake = make(env, prov=calm_provider())
+    p = last_close(e)
+    win, lose, broken = ar(e, 10, p * 0.97), ar(e, 10, p * 1.02), ar(e, 10, p * 1.5)
+    assert win["code"] == "pyramid" and "수익 중" in win["evidence"][0]["value"]
+    assert lose["code"] == "avg_down" and "손실 중" in lose["evidence"][0]["value"]
+    assert broken["code"] == "avoid" and "매도 검토 신호" in broken["reason"]                      # 손절선 이탈은 추가 매수를 권하지 않는다
+    assert sum(1 for r in (win, lose, broken) if r["code"] in {"pyramid", "avg_down"}) == 2
+
+
+def test_add_review_holds_back_when_the_buy_conditions_fail(env, monkeypatch):
+    e, store, fake = make(env, prov=calm_provider())
+    monkeypatch.setattr(eng, "analyze", lambda *a, **k: Result(CODE, "삼성전자", 100000, 20, 0, "관망"))        # 신규 매수 조건(점수·판정)이 안 맞는 상태
+    r = ar(e, 10, last_close(e) * 1.02)
+    assert r["code"] == "hold" and "조건이" in r["reason"] and "물타기" in r["reason"]
+
+
+def test_add_review_without_data_or_unknown_code(env):
+    e, store, fake = make(env)
+
+    class NoData(FakeProvider):
+        def prices(self, code): raise FileNotFoundError("시세 없음")
+    e2, _, _ = make(env, prov=NoData())
+    r = ar(e2, 10, 100_000.0)
+    assert r["code"] == "hold" and "시세 없음" in r["reason"]
+    with pytest.raises(KeyError):
+        e.add_review("000000", 1, 1.0)
+
+
+def test_add_review_uses_the_fixed_entry_atr_when_the_ledger_matches(env):
+    e, store, fake, pid, qty, fill, entry_atr = held_position(env, widen=True)
+    r = ar(e, qty, fill)
+    assert f"손절선 {fill - 2.0 * entry_atr:,.0f}원" in r["evidence"][0]["value"]                  # 오늘 ATR 이 커졌어도 손절선은 진입 ATR 기준
+    r2 = ar(e, qty + 3, fill)                                                         # 보유 수량이 원장과 다르면 현재 ATR 로 대체
+    assert f"손절선 {fill - 2.0 * entry_atr:,.0f}원" not in r2["evidence"][0]["value"]
+
+
+def test_add_review_holds_back_on_stale_prices_and_shows_the_basis_date(env):
+    e, store, fake = make(env, prov=calm_provider())
+    fresh = ar(e, 10, last_close(e) * 0.97)
+    assert fresh["code"] == "pyramid" and fresh["as_of"] == "2026-10-28"
+    basis = next(x for x in fresh["evidence"] if x["label"] == "판단 기준")
+    assert "2026-10-28 종가" in basis["value"] and "장중 현재가가 아니에요" in basis["threshold"]
+    old = ar(e, 10, last_close(e) * 0.97, today=date(2026, 11, 20))                                   # 마지막 봉이 23일 전
+    assert old["code"] == "hold" and "23일 전" in old["reason"] and "2026-10-28" in old["reason"]
+    edge = ar(e, 10, last_close(e) * 0.97, today=date(2026, 11, 4))                                  # 7일 전까지는 허용(연휴)
+    assert edge["code"] == "pyramid"
+    assert ar(e, 10, last_close(e) * 0.97, today=date(2026, 11, 5))["code"] == "hold"                # 8일 전부터 보류
+
+
+def test_add_review_reason_names_the_korean_conditions_not_the_us_ones(env):
+    e, store, fake = make(env, prov=calm_provider())
+    for r in (ar(e, 10, last_close(e) * 0.97), ar(e, 10, last_close(e) * 1.02)):
+        assert "매수 점수" in r["reason"] and "수급" in r["reason"] and "상대강도" not in r["reason"] and "나스닥" not in r["reason"]
+
+
+def test_add_review_wording_does_not_claim_a_live_price_or_a_maximum_loss(env):
+    e, store, fake = make(env, prov=calm_provider())
+    r = ar(e, 10, last_close(e) * 1.02)
+    own = [x for x in r["evidence"] if x["label"].startswith(("내 위치", "판단 기준", "시뮬레이션"))]                  # 이 의견이 직접 만든 행(신규 매수 근거는 원래 종가 기준)
+    text = " ".join(x["label"] + " " + x["value"] + " " + x["threshold"] for x in own) + r["note"] + r["reason"]
+    text = text.replace("장중 현재가가 아니에요", "")                                                          # 현재가가 아니라는 안내 문구는 허용
+    assert len(own) == 4 and "지금 가격" not in text and "현재가" not in text and "최대 손실" not in text
+    sims = [x for x in r["evidence"] if x["label"].startswith("시뮬레이션")]
+    assert all("2026-10-28 종가" in x["label"] and "예상손실" in x["value"] and "손절선" in x["value"] and "갭" in x["threshold"] for x in sims)

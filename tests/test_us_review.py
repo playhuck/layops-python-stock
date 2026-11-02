@@ -352,3 +352,19 @@ def test_api_fx_roundtrip_and_validation(offline):
     bad = c.put("/api/us/positions/AAA", json={"qty": 2, "avg_price": 130, "fx_buy": 0.00073}, headers=H)
     assert bad.status_code == 400 and "환율" in strict(bad)["error"]
     assert strict(c.get("/api/us/positions"))[0]["fx_buy"] == 1352.5                                 # 거절된 요청은 기존 값을 바꾸지 않는다
+
+
+def test_judgments_attach_the_add_opinion_only_for_held_positions(offline):
+    us_positions.register("AAA", 2, 90, fx_buy=1300)
+    marketdb.upsert_prices("AAA", bars())
+    usmarket.add_watch("BBB", "B")
+    j = us_review.judgments()
+    by = {x["symbol"]: x for x in j["stocks"]}
+    a = by["AAA"]["add"]
+    assert a["code"] in {"pyramid", "avg_down", "hold", "avoid"} and a["label"] and a["reason"] and a["note"] and a["evidence"]
+    assert any(e["label"].startswith("시뮬레이션") for e in a["evidence"]) and a["evidence"][0]["label"] == "내 위치"
+    assert by["BBB"]["add"] is None                                                                  # 보유가 없으면 의견도 없다
+    from stockwatch.web import app
+    c = app.test_client()
+    body = strict(c.get("/api/us/judgment"))                                                       # NaN 이 섞이면 strict JSON 파싱에서 실패한다
+    assert [x for x in body["stocks"] if x["symbol"] == "AAA"][0]["add"]["label"] == a["label"]

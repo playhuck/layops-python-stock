@@ -527,6 +527,23 @@ def holdings_source():
     return jsonify({"source": holdings.get_source()})
 
 
+@app.get("/api/kr/add-opinion/<code>")
+def kr_add_opinion(code: str):
+    """한국 보유 종목의 추가 매수(물타기·불타기) 의견 — 화면 참고용. 선택한 보유 출처(직접 입력/가져오기)의 보유로 계산하고,
+    제안·주문을 만들지 않는다(읽기 전용)."""
+    e = _engine()
+    v = holdings.view(e.gw if holdings.get_source() == "import" else None)
+    if not v["kr"]["known"]:
+        return jsonify({"error": "보유 정보를 가져오지 못했어요"}), 503
+    h = v["kr"]["items"].get(code)
+    if not h:
+        return jsonify({"error": "이 종목의 보유가 없어요"}), 404
+    try:
+        return jsonify(e.add_review(code, h["qty"], h["avg"]))
+    except KeyError:
+        abort(404)
+
+
 @app.put("/api/kr/positions/<code>")
 @guarded
 def kr_position_put(code: str):

@@ -1,8 +1,9 @@
-import { useState } from "react";
-import { deleteKrPosition, putKrPosition } from "../api";
+import { useEffect, useRef, useState } from "react";
+import { deleteKrPosition, fetchKrAddOpinion, putKrPosition } from "../api";
 import { pct, signed, won } from "../format";
-import type { HoldingItem, HoldingsSource, HoldingsView } from "../types";
+import type { HoldingItem, HoldingsSource, HoldingsView, UsAdd } from "../types";
 import { krHolding, krUnknownNote, pnlPct, SourceToggle } from "./Holdings";
+import { AddOpinionPanel } from "./UsShared";
 
 const EMPTY = { qty: "", avg: "", date: "", note: "" };
 
@@ -29,11 +30,27 @@ export default function MyHolding({ code, price, holdings, onSource, onChanged, 
     if (!del) { setDel(true); setTimeout(() => setDel(false), 3000); return; }          // 두 번 눌러야 지운다
     try { await deleteKrPosition(code); setDel(false); onToast("보유 기록을 지웠어요"); onChanged(); } catch (err) { onToast((err as Error).message); }
   };
+  const [advice, setAdvice] = useState<UsAdd | null>(null);          // 제안Plus+(물타기·불타기 의견): 누를 때 서버에서 계산해 온다
+  const [adviceOpen, setAdviceOpen] = useState(false);
+  const [adviceBusy, setAdviceBusy] = useState(false);
+  const [adviceErr, setAdviceErr] = useState<string | null>(null);
+  const reqId = useRef(0);                                           // 조회 세대 번호: 종목·출처·보유가 바뀌면 올려서 늦게 도착한 이전 응답을 버린다
+  useEffect(() => { reqId.current += 1; setAdvice(null); setAdviceOpen(false); setAdviceBusy(false); setAdviceErr(null); }, [code, source, h?.qty, h?.avg]);
+  const toggleAdvice = async () => {
+    if (adviceOpen) { setAdviceOpen(false); return; }
+    setAdviceOpen(true); setAdviceErr(null);
+    if (advice) return;
+    const id = reqId.current;
+    setAdviceBusy(true);
+    try { const a = await fetchKrAddOpinion(code); if (id === reqId.current) setAdvice(a); }
+    catch (err) { if (id === reqId.current) setAdviceErr((err as Error).message); }
+    if (id === reqId.current) setAdviceBusy(false);
+  };
   const p = h ? pnlPct(h, price) : null;
   const last = h ? h.last ?? price : price;
   return (
     <section className="card">
-      <div className="toolbar"><h2 style={{ margin: 0 }}>내 보유</h2><SourceToggle source={source} onChange={onSource} /></div>
+      <div className="toolbar"><h2 style={{ margin: 0 }}>내 보유 {h && <button className="add" style={{ marginLeft: 8, fontSize: 12 }} onClick={toggleAdvice} aria-expanded={adviceOpen} title="물타기·불타기 의견과 이유">제안Plus+</button>}</h2><SourceToggle source={source} onChange={onSource} /></div>
       {h && (
         <>
           <div className="hold-sum">
@@ -45,6 +62,8 @@ export default function MyHolding({ code, price, holdings, onSource, onChanged, 
           <small className="muted">{p == null ? "" : `현재가가 평단보다 ${p >= 0 ? "위" : "아래"}에 있어요 · 차트의 주황 점선이 내 평단이에요`}{h.opened_on ? ` · 매수일 ${h.opened_on}` : ""}{h.note ? ` · ${h.note}` : ""}</small>
         </>
       )}
+      {adviceOpen && h && (adviceBusy ? <p className="empty" style={{ margin: "8px 0" }}>의견을 계산하고 있어요…</p>
+        : adviceErr ? <p className="warn">{adviceErr}</p> : advice ? <AddOpinionPanel a={advice} /> : null)}
       {source === "import" && !h && <p className="empty" style={{ margin: "8px 0 0" }}>{unknown ?? "토스에서 가져온 보유에 이 종목이 없어요"}</p>}
       {source === "manual" && !editing && (
         <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>

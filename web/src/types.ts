@@ -104,7 +104,9 @@ export interface UsKrw {
   cost_krw?: number; value_krw?: number; pnl_krw?: number; pnl_pct?: number; fx_pct?: number;
 }
 export interface UsFx { rate: number | null; as_of: string | null; reason: string | null }
-export interface UsJudgmentStock { symbol: string; name: string; buy: UsReview; position: UsPosition | null; sell: UsReview | null; krw: UsKrw | null }
+// 보유 종목의 추가 매수(물타기·불타기) 의견: 참고용이며 주문은 없다
+export interface UsAdd { code: "pyramid" | "avg_down" | "hold" | "avoid"; label: string; reason: string; as_of?: string | null; evidence: Check[]; note: string }
+export interface UsJudgmentStock { symbol: string; name: string; buy: UsReview; position: UsPosition | null; sell: UsReview | null; krw: UsKrw | null; add: UsAdd | null }
 export interface UsJudgment {
   market: { ok: boolean | null; vix: number | null; nasdaq_above_ma50: boolean | null; text: string }; fx: UsFx;
   stocks: UsJudgmentStock[]; note: string; rules_version: number;
