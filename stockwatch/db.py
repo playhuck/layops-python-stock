@@ -62,6 +62,10 @@ CREATE TABLE IF NOT EXISTS us_watchlist(
 CREATE TABLE IF NOT EXISTS us_meta(
   symbol TEXT PRIMARY KEY, updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), market_cap DOUBLE PRECISION, avg_volume DOUBLE PRECISION,
   float_shares DOUBLE PRECISION, short_pct_float DOUBLE PRECISION, beta DOUBLE PRECISION, sector TEXT, industry TEXT, next_earnings DATE);
+-- 미국 보유 종목(사용자가 직접 입력). 주문과 연결되지 않고 매도 검토 화면의 입력으로만 쓴다. 종목당 평단 한 줄, 수량은 소수 주식을 위해 실수
+CREATE TABLE IF NOT EXISTS us_positions(
+  symbol TEXT PRIMARY KEY, qty DOUBLE PRECISION NOT NULL CHECK (qty > 0), avg_price DOUBLE PRECISION NOT NULL CHECK (avg_price > 0),
+  opened_on DATE, note TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
 """
 
 

@@ -11,7 +11,7 @@ from functools import wraps
 from flask import Flask, abort, jsonify, request, send_from_directory
 from flask.json.provider import DefaultJSONProvider
 
-from . import collector, indicators as ind, usmarket, volume_profile
+from . import collector, indicators as ind, us_positions, us_review, usmarket, volume_profile
 from . import config as cfgmod, marketflow, sectors, stockseries, usersettings
 from .cli import run, ROOT, summarize_market, load_config
 from .envfile import env
@@ -502,8 +502,43 @@ def us_watch_add():
 @app.delete("/api/us/watchlist/<symbol>")
 @guarded
 def us_watch_remove(symbol: str):
+    if us_positions.get(symbol):
+        return jsonify({"error": f"{symbol} 보유 종목으로 등록돼 있어요. 보유 등록을 먼저 지우세요"}), 409
     try:
         usmarket.remove_watch(symbol)
+    except KeyError:
+        abort(404)
+    return jsonify({"ok": True})
+
+
+@app.get("/api/us/judgment")
+def us_judgment():
+    """미국 관심종목의 매수 검토와 보유 종목의 매도 검토. 주문 기능은 없고 근거를 보여주기만 한다 (규칙은 미검증 가설)."""
+    return jsonify(us_review.judgments())
+
+
+@app.get("/api/us/positions")
+def us_positions_list():
+    return jsonify([us_review._position_json(p) for p in us_positions.list_positions()])
+
+
+@app.put("/api/us/positions/<symbol>")
+@guarded
+def us_position_put(symbol: str):
+    """보유 종목 등록·수정(직접 입력). 관심 종목에 없으면 시세 수집과 함께 추가한다. 어떤 주문도 내지 않는다."""
+    b = request.get_json(force=True) or {}
+    try:
+        p = us_positions.register(symbol, b.get("qty"), b.get("avg_price"), b.get("opened_on"), b.get("note", ""), str(b.get("name", "")))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify(us_review._position_json(p))
+
+
+@app.delete("/api/us/positions/<symbol>")
+@guarded
+def us_position_delete(symbol: str):
+    try:
+        us_positions.delete(symbol)
     except KeyError:
         abort(404)
     return jsonify({"ok": True})

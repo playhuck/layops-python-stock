@@ -57,11 +57,14 @@ export const resolveProposal = (id: number, resolution: "adopt" | "not_sent" | "
 export const fetchCandidates = (id: number) => get<import("./types").Candidate[]>(`/api/trading/proposals/${id}/candidates`);
 export const dismissUnreconciled = (code: string) => send<{ ok: boolean }>("POST", `/api/trading/unreconciled/${code}/dismiss`);
 
-import type { UsDiscoverHit, UsOverview, UsStocks } from "./types";
+import type { UsDiscoverHit, UsJudgment, UsOverview, UsPosition, UsPositionInput, UsStocks } from "./types";
 export const fetchUsOverview = () => get<UsOverview>("/api/us/overview");
 export const fetchUsStocks = () => get<UsStocks>("/api/us/stocks");
 export const fetchUsSeries = (symbol: string) => get<Row[]>(`/api/us/series/${encodeURIComponent(symbol)}`);
 export const fetchUsProfile = (symbol: string, window: number) => get<VolumeProfile>(`/api/us/profile/${encodeURIComponent(symbol)}?window=${window}`);
+export const fetchUsJudgment = () => get<UsJudgment>("/api/us/judgment");
+export const putUsPosition = (symbol: string, body: UsPositionInput) => send<UsPosition>("PUT", `/api/us/positions/${encodeURIComponent(symbol)}`, body);
+export const deleteUsPosition = (symbol: string) => send("DELETE", `/api/us/positions/${encodeURIComponent(symbol)}`);
 export const fetchUsDiscover = (minCap: number, maxCap: number) => get<UsDiscoverHit[]>(`/api/us/discover?min_cap=${minCap}&max_cap=${maxCap}`);
 export const addUsStock = (symbol: string, name: string) => send("POST", "/api/us/watchlist", { symbol, name });
 export const removeUsStock = (symbol: string) => send("DELETE", `/api/us/watchlist/${encodeURIComponent(symbol)}`);

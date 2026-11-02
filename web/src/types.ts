@@ -90,3 +90,17 @@ export interface VolumeProfile {
   price?: number; atr?: N; bins?: ProfileBin[]; poc?: { lo: number; hi: number; share: number }; zones?: ProfileZone[];
   inside?: ProfileZone | null; up?: ProfileReach | null; down?: ProfileReach | null;
 }
+
+// 미국 종목 판단 (stockwatch/us_judgment.py). 화면 표시 전용이고 주문과 연결되지 않는다
+export interface UsVerdict { code: "review" | "watch" | "blocked" | "na" | "sell" | "caution" | "hold"; label: string; reason: string | null }
+export interface UsReview {
+  verdict: UsVerdict; evidence: Check[]; levels: Record<string, number | null> | null; price: number | null; as_of: string | null; unmet: number;
+  pnl_pct?: number; pnl_value?: number; value?: number; note: string; rules_version: number;
+}
+export interface UsPosition { symbol: string; qty: number; avg_price: number; opened_on: string | null; note: string }
+export interface UsJudgmentStock { symbol: string; name: string; buy: UsReview; position: UsPosition | null; sell: UsReview | null }
+export interface UsJudgment {
+  market: { ok: boolean | null; vix: number | null; nasdaq_above_ma50: boolean | null; text: string };
+  stocks: UsJudgmentStock[]; note: string; rules_version: number;
+}
+export interface UsPositionInput { qty: number; avg_price: number; opened_on: string | null; note: string; name?: string }

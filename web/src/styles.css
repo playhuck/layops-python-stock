@@ -248,3 +248,15 @@ select.input{appearance:auto;padding:12px 14px;font-size:14px}
 .prof-sum{margin:0 0 8px;font-size:12.5px;line-height:1.55}.prof-sum b{font-weight:700}
 .evidence .info .mark{background:transparent;color:var(--sub);border:1px solid var(--line);font-size:12px}
 .evidence .info .lbl{color:var(--sub);font-weight:500}.evidence .info-note{display:block;margin-top:2px;color:var(--sub);font-size:12px;line-height:1.45}
+.evidence .hit .mark{background:#e8830a}.evidence .hit .lbl{font-weight:700}
+/* 미국 판단 */
+.us-note{margin:0 0 10px;font-size:12px;color:var(--sub);line-height:1.5}
+.us-form{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin:0 0 12px}
+.us-form label{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--sub)}
+.us-form .input{width:96px}.us-form .input.wide{width:150px}
+.us-hold{border-top:1px solid var(--line);padding:10px 0}.us-hold:first-of-type{border-top:0}
+.us-hold .row{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;cursor:pointer}
+.us-hold .row b{font-size:15px}.us-hold .sub{font-size:12.5px;color:var(--sub)}
+.us-hold .btns{margin-left:auto;display:flex;gap:6px}
+.us-reason{margin:6px 0 0;font-size:12.5px;color:var(--sub)}
+.us-levels{margin:8px 0 0;font-size:12.5px;line-height:1.55}
