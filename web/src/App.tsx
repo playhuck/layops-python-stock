@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type MouseEvent } from "react";
-import { fetchDashboard, fetchHoldings, fetchStatus, fetchTrading, setHoldingsSource, startRefresh } from "./api";
+import { fetchDashboard, fetchHoldings, fetchQuotes, fetchStatus, fetchTrading, setHoldingsSource, startRefresh } from "./api";
 import { tabHref, useRoute, type Tab } from "./router";
-import type { Dashboard, HoldingsSource, HoldingsView } from "./types";
+import type { Dashboard, HoldingsSource, HoldingsView, Quotes } from "./types";
 import AddSheet from "./components/AddSheet";
 import HomePage, { type Market } from "./components/HomePage";
 import MarketPage from "./components/MarketPage";
@@ -29,15 +29,18 @@ export default function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [pending, setPending] = useState(0);
   const [holdings, setHoldings] = useState<HoldingsView | null>(null);
+  const [quotes, setQuotes] = useState<Quotes | null>(null);                   // 표시 전용 장중 현재가. 실패해도 일봉 종가를 그대로 보여준다
+  const loadQuotes = useCallback((fresh = false) => { fetchQuotes(fresh).then(setQuotes).catch(() => undefined); }, []);
 
   const show = useCallback((m: string) => { setToast(m); setTimeout(() => setToast(null), 3200); }, []);
   const loadHoldings = useCallback(() => { fetchHoldings().then(setHoldings).catch(() => setHoldings(null)); }, []);
   const changeSource = useCallback((s: HoldingsSource) => { setHoldingsSource(s).then(loadHoldings).catch((e) => show((e as Error).message)); }, [loadHoldings, show]);
   const load = useCallback(() => {
     loadHoldings();
+    loadQuotes();
     fetchDashboard().then((d) => { setData(d); setError(null); }).catch((e) => setError(String(e)));
     fetchTrading().then((t) => setPending(t.pending.length)).catch(() => undefined);
-  }, [loadHoldings]);
+  }, [loadHoldings, loadQuotes]);
   useEffect(load, [load]);
   useEffect(() => { if (selected && isUs(selected)) changeMarket("us"); }, [selected, changeMarket]);     // 주소창으로 미국 종목을 직접 열어도 뒤로 가면 홈의 미국 탭
   const stockName = data?.results.find((r) => r.code === route.code)?.name;
@@ -65,7 +68,7 @@ export default function App() {
   const failed = data.status.steps.filter((s) => !s.ok);
   const lastRun = data.status.last_run ? data.status.last_run.slice(5, 16).replace("-", "/") : null;
   const statusText = running ? "데이터 갱신 중…" : lastRun ? `${lastRun} 기준` : "아직 갱신 전이에요";
-  const refresh = async () => { await startRefresh(); load(); show("데이터를 갱신하고 있어요"); };
+  const refresh = async () => { await startRefresh(); load(); loadQuotes(true); show("데이터를 갱신하고 있어요"); };
   const go = (t: Tab) => { navigate({ tab: t, code: null }); if (t === "trade") load(); };
   // 일반 클릭은 앱 안 이동, Ctrl/⌘/가운데 클릭은 브라우저 기본(새 탭)
   const onNav = (t: Tab) => (e: MouseEvent) => { if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return; e.preventDefault(); go(t); };
@@ -85,15 +88,15 @@ export default function App() {
 
       <div className="app">
         {tab === "home" && usSel ? (
-          <UsStockPage symbol={usSel} holdings={holdings} onSource={changeSource} onHoldings={loadHoldings} onBack={back} onToast={show} onRemoved={() => { setUsVersion((v) => v + 1); navigate({ tab: "home", code: null }, true); }} />
+          <UsStockPage symbol={usSel} quote={quotes?.us[usSel]} holdings={holdings} onSource={changeSource} onHoldings={loadHoldings} onBack={back} onToast={show} onRemoved={() => { setUsVersion((v) => v + 1); navigate({ tab: "home", code: null }, true); }} />
         ) : tab === "home" && sel ? (
-          <StockPage r={sel} holdings={holdings} onSource={changeSource} onHoldings={loadHoldings} onBack={back} onToast={show} onRemoved={() => { navigate({ tab: "home", code: null }, true); load(); }} />
+          <StockPage r={sel} quote={quotes?.kr[sel.code]} holdings={holdings} onSource={changeSource} onHoldings={loadHoldings} onBack={back} onToast={show} onRemoved={() => { navigate({ tab: "home", code: null }, true); load(); }} />
         ) : (
           <>
             <header className="top mob-head"><div><h1>{title}</h1><span className="sub">{statusText}</span></div>{RefreshBtn}</header>
             <div className="page-h"><h1>{title}</h1></div>
             {failed.map((s) => <p key={s.name} className="notice">⚠ {s.name}: {s.error}</p>)}
-            {tab === "home" && <HomePage data={data} holdings={holdings} onSource={changeSource} onOpen={openStock} onAdd={(m) => setAdding(m)} mkt={market} onMarket={changeMarket} usVersion={usVersion} onOpenUs={openUs} onToast={show} />}
+            {tab === "home" && <HomePage data={data} quotes={quotes} onQuotes={loadQuotes} holdings={holdings} onSource={changeSource} onOpen={openStock} onAdd={(m) => setAdding(m)} mkt={market} onMarket={changeMarket} usVersion={usVersion} onOpenUs={openUs} onToast={show} />}
             {tab === "sector" && <SectorsPage onOpen={openStock} />}
             {tab === "market" && <MarketPage />}
             {tab === "us" && <UsPage onToast={show} holdings={holdings} onSource={changeSource} onHoldings={loadHoldings} onOpenHome={() => { changeMarket("us"); go("home"); }} />}

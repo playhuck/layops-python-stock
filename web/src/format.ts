@@ -18,3 +18,6 @@ export const krwText = (n: number) => (n >= 1e8 ? `${(n / 1e8).toLocaleString("k
 export const pct = (n: number | null | undefined, d = 1) => (n == null || !Number.isFinite(n) ? "-" : `${n >= 0 ? "+" : ""}${n.toFixed(d)}%`);
 /** 달러 금액을 읽기 쉽게: $1.2B / $35.0M */
 export const usd = (n: number | null | undefined) => (n == null || !Number.isFinite(n) ? "-" : n >= 1e9 ? `$${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `$${(n / 1e6).toFixed(1)}M` : `$${Math.round(n).toLocaleString("en-US")}`);
+
+/** 체결 시각(epoch 초) → "11/04 09:23" (브라우저 시간대) */
+export const quoteTime = (sec: number) => { const d = new Date(sec * 1000), p = (n: number) => String(n).padStart(2, "0"); return `${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };

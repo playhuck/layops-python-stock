@@ -74,3 +74,6 @@ export const fetchUsDiscover = (minCap: number, maxCap: number) => get<UsDiscove
 export const addUsStock = (symbol: string, name: string) => send("POST", "/api/us/watchlist", { symbol, name });
 export const removeUsStock = (symbol: string) => send("DELETE", `/api/us/watchlist/${encodeURIComponent(symbol)}`);
 export const refreshUs = () => send<{ started: boolean }>("POST", "/api/us/refresh");
+
+import type { Quotes } from "./types";
+export const fetchQuotes = (fresh = false) => get<Quotes>(`/api/quotes${fresh ? "?fresh=1" : ""}`);

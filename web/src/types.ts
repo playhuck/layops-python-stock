@@ -122,3 +122,7 @@ export interface HoldingsView {
   us: { supported: boolean; items: Record<string, HoldingItem> };
 }
 export interface KrPositionInput { qty: number; avg_price: number; opened_on: string | null; note: string }
+
+/** 표시 전용 장중 현재가 (신호·제안에는 쓰이지 않음). as_of 는 체결 시각(epoch 초) */
+export interface Quote { price: number; as_of: number }
+export interface Quotes { kr: Record<string, Quote>; us: Record<string, Quote> }

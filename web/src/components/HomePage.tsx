@@ -1,13 +1,13 @@
-import { avatarColor, signed, verdictClass, won } from "../format";
+import { avatarColor, quoteTime, signed, verdictClass, won } from "../format";
 import { useState } from "react";
-import type { Dashboard, HoldingsSource, HoldingsView } from "../types";
+import type { Dashboard, HoldingsSource, HoldingsView, Quotes } from "../types";
 import { krHolding, krUnknownNote, pnlPct, SourceToggle } from "./Holdings";
 import UsWatchTable from "./UsWatchTable";
 import Sparkline from "./Sparkline";
 
 export type Market = "kr" | "us";
 
-export default function HomePage({ data: d, onOpen, onAdd, holdings, onSource, mkt, onMarket, usVersion, onOpenUs, onToast }: { data: Dashboard; onOpen: (code: string) => void; onAdd: (m: Market) => void; holdings: HoldingsView | null; onSource: (s: HoldingsSource) => void; mkt: Market; onMarket: (m: Market) => void; usVersion: number; onOpenUs: (symbol: string) => void; onToast: (m: string) => void }) {
+export default function HomePage({ data: d, quotes, onQuotes, onOpen, onAdd, holdings, onSource, mkt, onMarket, usVersion, onOpenUs, onToast }: { data: Dashboard; quotes: Quotes | null; onQuotes: (fresh?: boolean) => void; onOpen: (code: string) => void; onAdd: (m: Market) => void; holdings: HoldingsView | null; onSource: (s: HoldingsSource) => void; mkt: Market; onMarket: (m: Market) => void; usVersion: number; onOpenUs: (symbol: string) => void; onToast: (m: string) => void }) {
   const data = { ...d, waiting: d.waiting ?? [] };  // 구버전 서버 응답에도 화면이 죽지 않도록
   const [cat, setCat] = useState<string>("");
   const market = Object.entries(data.market ?? {});
@@ -29,7 +29,7 @@ export default function HomePage({ data: d, onOpen, onAdd, holdings, onSource, m
         {mktTabs}
         <div className="section-title" style={{ marginTop: 12 }}>관심 종목 <small>미국 (나스닥)</small></div>
         <div className="src-row"><small>보유 표시</small><SourceToggle source={holdings?.source ?? "manual"} onChange={onSource} /></div>
-        <UsWatchTable holdings={holdings} version={usVersion} onOpen={onOpenUs} onAdd={() => onAdd("us")} onToast={onToast} />
+        <UsWatchTable quotes={quotes?.us} onQuotes={onQuotes} holdings={holdings} version={usVersion} onOpen={onOpenUs} onAdd={() => onAdd("us")} onToast={onToast} />
         <p className="disclaimer">참고용 분석이며 투자 판단과 손실 책임은 본인에게 있습니다.</p>
       </div>
     );
@@ -47,7 +47,7 @@ export default function HomePage({ data: d, onOpen, onAdd, holdings, onSource, m
             <button className="row srow" key={r.code} onClick={() => onOpen(r.code)}>
               <div className="avatar" style={{ background: avatarColor(r.code) }}>{r.name[0]}</div>
               <div className="mid" title={r.detail.sector?.label}><div className="name">{r.name}{(() => {
-                const h = krHolding(holdings, r.code), p = h ? pnlPct(h, r.price) : null;
+                const h = krHolding(holdings, r.code), p = h ? pnlPct(h, quotes?.kr[r.code]?.price ?? r.price) : null;
                 return h ? <span className="chip held" title={`평균 매수가 ${won(h.avg)}원`}>보유 {h.qty.toLocaleString("ko-KR")}주{p == null ? "" : ` · ${p >= 0 ? "+" : ""}${p.toFixed(1)}%`}</span> : null;
               })()}</div><small>{r.code}{r.detail.sector?.primary ? ` · ${r.detail.sector.primary}` : ""}</small></div>
               <Sparkline values={r.detail.spark ?? []} />
@@ -56,7 +56,7 @@ export default function HomePage({ data: d, onOpen, onAdd, holdings, onSource, m
               <div className="cell r c-rsi">{r.detail.indicators.rsi == null ? "-" : r.detail.indicators.rsi.toFixed(0)}</div>
               <div className={`cell r c-fgn ${(fgn(r) ?? 0) >= 0 ? "pos" : "neg"}`}>{fgn(r) == null ? "-" : `${signed(Math.round(fgn(r)! / 1e4))}만주`}</div>
               <div className="right">
-                <div className="price">{won(r.price)}원</div>
+                <div className="price" title={quotes?.kr[r.code] ? `${quoteTime(quotes.kr[r.code].as_of)} 기준 (판정은 전일 종가 ${won(r.price)}원 기준)` : "전일 종가 기준"}>{won(quotes?.kr[r.code]?.price ?? r.price)}원</div>
                 <span className={`chip ${verdictClass(r.verdict)}`}>{r.verdict.replace(/\s*\(.*\)/, "")}</span>
               </div>
             </button>

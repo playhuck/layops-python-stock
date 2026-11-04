@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { deleteUsPosition, fetchUsJudgment, fetchUsProfile, fetchUsSeries, fetchUsStocks, putUsPosition, removeUsStock } from "../api";
-import { num, pct, usd } from "../format";
-import type { HoldingsSource, HoldingsView, UsJudgmentStock, UsStock } from "../types";
+import { num, pct, quoteTime, usd } from "../format";
+import type { HoldingsSource, HoldingsView, Quote, UsJudgmentStock, UsStock } from "../types";
 import ChartCard from "./ChartCard";
 import Evidence from "./Evidence";
 import { SourceToggle } from "./Holdings";
@@ -9,7 +9,7 @@ import UsHoldingForm, { HOLD_EMPTY, holdBody, holdFormFrom, type HoldForm } from
 import { AddOpinionPanel, cls, krwBreakdown, px2, Verdict } from "./UsShared";
 
 /** 미국 종목 상세(홈 > 미국 탭에서 연다): 지표 요약, 매수 검토 근거, 내 보유 한 줄, 차트(내 평단선) */
-export default function UsStockPage({ symbol, holdings, onSource, onHoldings, onBack, onToast, onRemoved }: { symbol: string; holdings: HoldingsView | null; onSource: (s: HoldingsSource) => void; onHoldings: () => void; onBack: () => void; onToast: (m: string) => void; onRemoved: () => void }) {
+export default function UsStockPage({ symbol, quote, holdings, onSource, onHoldings, onBack, onToast, onRemoved }: { symbol: string; quote?: Quote; holdings: HoldingsView | null; onSource: (s: HoldingsSource) => void; onHoldings: () => void; onBack: () => void; onToast: (m: string) => void; onRemoved: () => void }) {
   const [s, setS] = useState<UsStock | null | undefined>(undefined);     // undefined = 불러오는 중, null = 관심 종목에 없음
   const [j, setJ] = useState<UsJudgmentStock | undefined>();
   const [err, setErr] = useState<string | null>(null);
@@ -37,7 +37,8 @@ export default function UsStockPage({ symbol, holdings, onSource, onHoldings, on
       {top}
       <div className="hero">
         <div className="nm">{s.name} · {s.symbol} <span className="chip mkt">미국</span></div>
-        <div className="big">{s.pending ? "-" : `$${px2(s.close)}`}</div>
+        <div className="big">{s.pending ? "-" : `$${px2(quote?.price ?? s.close)}`}</div>
+        {!s.pending && <small className="muted">{quote ? `${quoteTime(quote.as_of)} 기준 · 판단은 전일 종가 $${px2(s.close)} 기준` : "전일 종가 기준"}</small>}
         {review && <Verdict v={review.verdict} />}
         {review?.verdict.reason && <small className="muted" style={{ marginLeft: 8 }}>{review.verdict.reason}</small>}
       </div>

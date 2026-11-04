@@ -11,7 +11,7 @@ from functools import wraps
 from flask import Flask, abort, jsonify, request, send_from_directory
 from flask.json.provider import DefaultJSONProvider
 
-from . import collector, holdings, indicators as ind, us_positions, us_review, usmarket, volume_profile
+from . import collector, holdings, indicators as ind, quotes, us_positions, us_review, usmarket, volume_profile
 from . import config as cfgmod, marketflow, sectors, stockseries, usersettings
 from .cli import run, ROOT, summarize_market, load_config
 from .envfile import env
@@ -57,6 +57,12 @@ def dashboard():
 @app.get("/api/status")
 def status():
     return jsonify(collector.status)
+
+
+@app.get("/api/quotes")
+def get_quotes():
+    """표시 전용 장중 현재가(한국·미국 관심 종목). fresh=1 이면 캐시를 건너뛴다. 신호·제안에는 쓰이지 않는다."""
+    return jsonify(quotes.get(fresh=request.args.get("fresh") == "1"))
 
 
 @app.post("/api/refresh")

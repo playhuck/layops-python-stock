@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { removeStock } from "../api";
-import { avatarColor, num, signed, verdictClass, won } from "../format";
-import type { HoldingsSource, HoldingsView, Result } from "../types";
+import { avatarColor, num, quoteTime, signed, verdictClass, won } from "../format";
+import type { HoldingsSource, HoldingsView, Quote, Result } from "../types";
 import ChartCard from "./ChartCard";
 import FlowCard from "./FlowCard";
 import Gauge from "./Gauge";
@@ -12,7 +12,7 @@ function Meter({ label, v, color }: { label: string; v: number; color: string })
   return <div className="meter"><span>{label}</span><div className="bar"><i style={{ width: `${Math.min(100, v)}%`, background: color }} /></div><span className="v">{v}</span></div>;
 }
 
-export default function StockPage({ r, onBack, onToast, onRemoved, holdings, onSource, onHoldings }: { r: Result; onBack: () => void; onToast: (m: string) => void; onRemoved: () => void; holdings: HoldingsView | null; onSource: (s: HoldingsSource) => void; onHoldings: () => void }) {
+export default function StockPage({ r, quote, onBack, onToast, onRemoved, holdings, onSource, onHoldings }: { r: Result; quote?: Quote; onBack: () => void; onToast: (m: string) => void; onRemoved: () => void; holdings: HoldingsView | null; onSource: (s: HoldingsSource) => void; onHoldings: () => void }) {
   const [confirming, setConfirming] = useState(false);
   const i = r.detail.indicators;
   const remove = async () => {
@@ -26,13 +26,14 @@ export default function StockPage({ r, onBack, onToast, onRemoved, holdings, onS
       <div className="hero">
         <div className="nm">{r.name} · {r.code}</div>
         {!!r.detail.sector?.tags.length && <div className="tags">{r.detail.sector.tags.map((t) => <span key={t} className="chip mkt">{t}</span>)}{r.detail.sector.label && <small> {r.detail.sector.label}</small>}</div>}
-        <div className="big">{won(r.price)}원</div>
+        <div className="big">{won(quote?.price ?? r.price)}원</div>
+        <small className="muted">{quote ? `${quoteTime(quote.as_of)} 기준 · 한국 시세는 지연될 수 있어요 · 판정은 전일 종가 ${won(r.price)}원 기준` : "전일 종가 기준"}</small>
         <span className={`chip ${verdictClass(r.verdict)}`}>{r.verdict}</span>
       </div>
 
       <div className="cols">
       <div className="col-main">
-      <div style={{ order: 1 }}><MyHolding code={r.code} price={r.price} holdings={holdings} onSource={onSource} onChanged={onHoldings} onToast={onToast} /></div>
+      <div style={{ order: 1 }}><MyHolding code={r.code} price={quote?.price ?? r.price} holdings={holdings} onSource={onSource} onChanged={onHoldings} onToast={onToast} /></div>
       <div style={{ order: 2 }}><ChartCard code={r.code} mine={krHolding(holdings, r.code) ? { avg: krHolding(holdings, r.code)!.avg } : undefined} /></div>
       <div style={{ order: 3 }}><FlowCard code={r.code} /></div>
       <section className="card kv-list" style={{ order: 4 }}>
